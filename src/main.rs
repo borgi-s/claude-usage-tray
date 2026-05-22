@@ -14,7 +14,7 @@ fn main() -> Result<()> {
     if cli.once {
         run_once()?;
     } else if cli.watch {
-        anyhow::bail!("--watch not yet implemented (Task 7 wires this up)");
+        claude_usage_tray::watch::run(cli.interval.as_secs())?;
     }
     Ok(())
 }
