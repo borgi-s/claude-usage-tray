@@ -31,13 +31,7 @@ fn ok_frame_includes_percent_and_reset_countdown_and_status_tag() {
     let creds = fake_creds();
     let snap = fake_snapshot();
     let now = Utc.with_ymd_and_hms(2026, 5, 22, 14, 24, 1).unwrap();
-    let f = draw_frame(
-        Some(&(snap, now)),
-        &creds,
-        120,
-        &LastStatus::Ok,
-        now,
-    );
+    let f = draw_frame(Some(&(snap, now)), &creds, 120, &LastStatus::Ok, now);
 
     assert!(f.body.contains("5h: 57%"), "body was:\n{}", f.body);
     assert!(f.body.contains("2h 12m"), "body was:\n{}", f.body);
@@ -73,7 +67,10 @@ fn rate_limited_status_shows_stale_footer_with_last_good_sample() {
         now,
     );
 
-    assert!(f.body.contains("5h: 57%"), "should still show the cached sample");
+    assert!(
+        f.body.contains("5h: 57%"),
+        "should still show the cached sample"
+    );
     assert!(f.body.contains("stale"), "footer should indicate staleness");
     assert!(f.body.contains("rate-limited"), "footer should explain why");
 }

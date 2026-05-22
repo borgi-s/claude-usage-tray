@@ -51,15 +51,15 @@ pub fn sample_from(snap: &UsageSnapshot, creds: &Credentials) -> CalibrationSamp
 /// if needed. Each call serializes, writes one line + `\n`, then flushes.
 pub fn append(path: &Path, sample: &CalibrationSample) -> Result<(), LogError> {
     paths::ensure_parent_dir(path).map_err(|e| {
-        LogError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+        LogError::Io(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string(),
+        ))
     })?;
 
     let line = serde_json::to_string(sample)?;
 
-    let mut file = OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(path)?;
+    let mut file = OpenOptions::new().append(true).create(true).open(path)?;
 
     file.write_all(line.as_bytes())?;
     file.write_all(b"\n")?;
@@ -69,12 +69,12 @@ pub fn append(path: &Path, sample: &CalibrationSample) -> Result<(), LogError> {
 
 /// Glue: convenience wrapper for the watch loop. Resolves the default path,
 /// builds a sample, and appends in one call.
-pub fn append_to_default_path(
-    snap: &UsageSnapshot,
-    creds: &Credentials,
-) -> Result<(), LogError> {
+pub fn append_to_default_path(snap: &UsageSnapshot, creds: &Credentials) -> Result<(), LogError> {
     let path = paths::calibration_log_path().map_err(|e| {
-        LogError::Io(std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+        LogError::Io(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e.to_string(),
+        ))
     })?;
     let sample = sample_from(snap, creds);
     append(&path, &sample)

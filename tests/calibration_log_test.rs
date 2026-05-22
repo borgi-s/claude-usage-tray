@@ -69,8 +69,7 @@ fn append_writes_one_line_per_call_and_round_trips() {
     let lines: Vec<&str> = raw.lines().collect();
     assert_eq!(lines.len(), 2, "expected exactly 2 lines, got: {raw}");
 
-    let parsed: CalibrationSample =
-        serde_json::from_str(lines[0]).expect("first line parses");
+    let parsed: CalibrationSample = serde_json::from_str(lines[0]).expect("first line parses");
     assert_eq!(parsed.schema_version, 1);
     assert_eq!(parsed.subscription_type, "pro");
     assert!((parsed.five_hour_util.unwrap() - 0.56).abs() < 1e-9);
@@ -84,5 +83,9 @@ fn append_creates_parent_directory_lazily() {
     let s = sample_from(&fake_snapshot(), &fake_creds());
     append(&nested, &s).expect("should create dirs and write");
 
-    assert!(nested.exists(), "expected file to exist at {}", nested.display());
+    assert!(
+        nested.exists(),
+        "expected file to exist at {}",
+        nested.display()
+    );
 }

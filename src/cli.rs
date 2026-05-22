@@ -23,7 +23,10 @@ impl Interval {
 }
 
 #[derive(Parser, Debug)]
-#[command(version, about = "Native Windows tray widget for Claude Code usage tracking.")]
+#[command(
+    version,
+    about = "Native Windows tray widget for Claude Code usage tracking."
+)]
 #[command(group(
     ArgGroup::new("mode")
         .required(true)

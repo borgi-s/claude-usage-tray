@@ -52,8 +52,18 @@ pub fn draw_frame(
     // Body.
     match last_success {
         Some((snap, _)) => {
-            writeln!(body, "  5h: {}", format_bucket_opt(snap.five_hour.as_ref(), now)).unwrap();
-            writeln!(body, "  7d: {}", format_bucket_opt(snap.seven_day.as_ref(), now)).unwrap();
+            writeln!(
+                body,
+                "  5h: {}",
+                format_bucket_opt(snap.five_hour.as_ref(), now)
+            )
+            .unwrap();
+            writeln!(
+                body,
+                "  7d: {}",
+                format_bucket_opt(snap.seven_day.as_ref(), now)
+            )
+            .unwrap();
         }
         None => {
             writeln!(body, "  5h: (fetching\u{2026})").unwrap();
