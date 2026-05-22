@@ -39,7 +39,6 @@ pub fn draw_frame(
     now: DateTime<Utc>,
 ) -> Frame {
     let mut body = String::new();
-    let mut lines: u16 = 0;
 
     // Header.
     writeln!(
@@ -48,21 +47,17 @@ pub fn draw_frame(
         interval_secs
     )
     .unwrap();
-    lines += 1;
     writeln!(body).unwrap();
-    lines += 1;
 
     // Body.
     match last_success {
         Some((snap, _)) => {
             writeln!(body, "  5h: {}", format_bucket_opt(snap.five_hour.as_ref(), now)).unwrap();
             writeln!(body, "  7d: {}", format_bucket_opt(snap.seven_day.as_ref(), now)).unwrap();
-            lines += 2;
         }
         None => {
             writeln!(body, "  5h: (fetching\u{2026})").unwrap();
             writeln!(body, "  7d: (fetching\u{2026})").unwrap();
-            lines += 2;
         }
     }
     writeln!(
@@ -71,14 +66,13 @@ pub fn draw_frame(
         creds.subscription_type, creds.rate_limit_tier
     )
     .unwrap();
-    lines += 1;
 
     // Footer.
     let footer = format_footer(last_success.map(|(_, t)| *t), interval_secs, status, now);
     writeln!(body, "  {}", footer).unwrap();
-    lines += 1;
 
-    Frame { body, line_count: lines }
+    let line_count = body.matches('\n').count() as u16;
+    Frame { body, line_count }
 }
 
 fn format_bucket_opt(b: Option<&UsageBucket>, now: DateTime<Utc>) -> String {
