@@ -50,9 +50,8 @@ pub fn sample_from(snap: &UsageSnapshot, creds: &Credentials) -> CalibrationSamp
 /// I/O: append one JSONL record to `path`. Creates parent dirs and the file
 /// if needed. Each call serializes, writes one line + `\n`, then flushes.
 pub fn append(path: &Path, sample: &CalibrationSample) -> Result<(), LogError> {
-    paths::ensure_parent_dir(path).map_err(|e| {
-        LogError::Io(std::io::Error::other(e.to_string()))
-    })?;
+    paths::ensure_parent_dir(path)
+        .map_err(|e| LogError::Io(std::io::Error::other(e.to_string())))?;
 
     let line = serde_json::to_string(sample)?;
 
@@ -67,9 +66,8 @@ pub fn append(path: &Path, sample: &CalibrationSample) -> Result<(), LogError> {
 /// Glue: convenience wrapper for the watch loop. Resolves the default path,
 /// builds a sample, and appends in one call.
 pub fn append_to_default_path(snap: &UsageSnapshot, creds: &Credentials) -> Result<(), LogError> {
-    let path = paths::calibration_log_path().map_err(|e| {
-        LogError::Io(std::io::Error::other(e.to_string()))
-    })?;
+    let path = paths::calibration_log_path()
+        .map_err(|e| LogError::Io(std::io::Error::other(e.to_string())))?;
     let sample = sample_from(snap, creds);
     append(&path, &sample)
 }
