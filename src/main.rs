@@ -1,37 +1,26 @@
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
+use clap::Parser;
 use claude_usage_tray::api::credentials::{load_from_default_path, Credentials};
 use claude_usage_tray::api::usage::{fetch_usage, UsageBucket, UsageSnapshot};
+use claude_usage_tray::cli::Cli;
 
 fn main() -> Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    if args.iter().any(|a| a == "--help" || a == "-h") {
-        print_help();
-        return Ok(());
-    }
-    if !args.iter().any(|a| a == "--once") {
-        eprintln!("Stage 1 only supports --once. Use --help to see usage.");
-        std::process::exit(2);
-    }
+    let cli = Cli::parse();
 
+    if cli.once {
+        run_once()?;
+    } else if cli.watch {
+        anyhow::bail!("--watch not yet implemented (Task 7 wires this up)");
+    }
+    Ok(())
+}
+
+fn run_once() -> Result<()> {
     let creds = load_from_default_path()?;
     let snap = fetch_usage(&creds)?;
     print_snapshot(&snap, &creds);
     Ok(())
-}
-
-fn print_help() {
-    println!(
-        "claude-usage-tray v{}\n\
-         \n\
-         USAGE:\n  \
-             claude-usage-tray --once\n  \
-             claude-usage-tray --help\n\
-         \n\
-         Reads OAuth from ~/.claude/.credentials.json and queries Anthropic's\n\
-         /api/oauth/usage endpoint, printing current 5h and 7d utilization.\n",
-        env!("CARGO_PKG_VERSION"),
-    );
 }
 
 fn print_snapshot(snap: &UsageSnapshot, creds: &Credentials) {
