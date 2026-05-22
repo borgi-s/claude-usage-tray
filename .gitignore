@@ -1,0 +1,13 @@
+# Rust build artifacts
+target/
+
+# Editor / OS detritus
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local state / secrets (these belong in the user home dir, never in the repo)
+.env
+*.log

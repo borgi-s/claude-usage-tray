@@ -1,0 +1,72 @@
+# claude-usage-tray — Project Memory
+
+## What this project is
+
+Native Windows tray widget for monitoring Claude Code token usage. Eventually replaces the Python+Streamlit local agent in [`claude-usage-tracker`](https://github.com/borgi-s/claude-usage-tracker) on Windows. The cloud viewer (`app_cloud.py` in that repo) stays Python — only the local agent gets ported.
+
+**Primary motivation:** CV/portfolio piece. Native Rust + Win32 + GUI work is a rare combo and signals systems-programming skills. Secondary motivation: shippable .exe with no Python runtime requirement.
+
+## User context
+
+User is a **Rust beginner** (zero prior Rust experience as of 2026-05-22). Explain ownership/borrowing/lifetimes/idioms as they come up. Don't assume familiarity with cargo, modules, serde, Result/?, anyhow, etc. The Stage 1 plan has inline beginner notes — future stages should keep that style.
+
+## Active design + plans
+
+- **Design spec:** `docs/superpowers/specs/2026-05-22-rust-tray-widget-design.md` — full 8-stage roadmap, dependency rationale, scope cuts, non-goals. Read first.
+- **Stage 1 plan:** `docs/superpowers/plans/2026-05-22-stage-1-cli.md` — bite-sized task plan for the single-shot CLI. NOT yet executed.
+
+Stages 2-8 will get their own implementation plans when each is ready to start.
+
+## Stage roadmap (summary — see spec for details)
+
+| Stage | Deliverable | Status |
+|---|---|---|
+| 1 | Single-shot CLI: read OAuth, hit `/api/oauth/usage`, print util | Plan ready, not started |
+| 2 | Polling daemon (`--watch`) | Pending |
+| 3 | Win32 tray icon (basic, solid color) | Pending |
+| 4 | GDI-rendered percentage icon | Pending |
+| 5 | Calibration math (port from Python's `caps.global_cap_from_anchors`) | Pending |
+| 6 | egui dashboard window | Pending |
+| 6.5 | Update notifier (GitHub Releases API) | Pending |
+| 7 | Supabase Storage upload | Pending |
+| 8 | Streamlit feature parity (sessions table, filters, calibration history) | Pending |
+
+## Tech stack (locked in design)
+
+- Rust stable, Windows MSVC toolchain, x86_64 only
+- HTTP: `ureq` (blocking, no async)
+- JSON: `serde` + `serde_json`
+- Time: `chrono` + `chrono-tz`
+- Paths: `dirs`
+- Errors: `anyhow` (top-level) + `thiserror` (library modules)
+- Logging: `tracing` + `tracing-subscriber` (added Stage 2)
+- Win32: `windows` crate (added Stage 3)
+- GUI: `eframe` + `egui` + `egui_plot` (added Stage 6)
+
+**Excluded by design:** tokio, polars equivalents, parquet, iced/Slint/other GUI libs, cross-compilation, Mac/Linux ports.
+
+## Conventions
+
+- All timestamps UTC internally. Local TZ via `chrono-tz` when displaying.
+- No commits with `Co-Authored-By: Claude` or "Generated with Claude Code" attribution.
+- Commit style: conventional (`feat:`, `fix:`, `style:`, `chore:`). Match what the plan's commit messages use.
+- `cargo fmt` + `cargo clippy --all-targets -- -D warnings` clean before each release tag.
+
+## Companion project (separate repo, separate concern)
+
+`C:\Users\borgi\Documents\claude-usage-tracker\` is the Python+Streamlit project this widget will eventually displace on the local Windows machine. Live cloud viewer at https://borgi-claude-usage-tracker.streamlit.app/. Don't edit files in that repo from this session; they're separate codebases.
+
+Key facts about that project useful to know:
+- Anthropic's util_5h is metered on **output tokens**, not cost-weighted (verified empirically 2026-05-22).
+- Anthropic's util_7d is **fixed weekly window** that resets Sunday 07:00 local — NOT rolling 7d despite the field name.
+- These two facts MUST carry over into the Rust calibration math (Stage 5). The Python `caps.py` is the reference implementation.
+
+## Cold-start checklist
+
+When resuming work in this repo:
+
+1. Read this file, then the spec at `docs/superpowers/specs/2026-05-22-rust-tray-widget-design.md`.
+2. Check `~/.claude/projects/C--Users-borgi-Documents-claude-usage-tray/memory/MEMORY.md` for session-level memory pointers.
+3. Verify state: `cargo --version` works? Repo initialized? What stage tag is on HEAD (`git describe --tags`)?
+4. Pick the right stage plan in `docs/superpowers/plans/`. Stages execute sequentially — finish one before planning the next.
+5. The Stage 1 plan has inline notes on Rust idioms for a beginner; keep that style for Stages 2-8 plans when written.

@@ -1,0 +1,20 @@
+[package]
+name = "claude-usage-tray"
+version = "0.1.0"
+edition = "2021"
+authors = ["borgi-s"]
+description = "Native Windows tray widget for Claude Code usage tracking."
+license = "MIT"
+repository = "https://github.com/borgi-s/claude-usage-tray"
+readme = "README.md"
+
+[dependencies]
+ureq = { version = "2.10", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5"
+anyhow = "1"
+thiserror = "1"
+
+[dev-dependencies]
