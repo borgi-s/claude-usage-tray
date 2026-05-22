@@ -1,9 +1,10 @@
 use anyhow::Result;
-use chrono::{DateTime, Duration, Utc};
+use chrono::Utc;
 use clap::Parser;
 use claude_usage_tray::api::credentials::{load_from_default_path, Credentials};
 use claude_usage_tray::api::usage::{fetch_usage, UsageBucket, UsageSnapshot};
 use claude_usage_tray::cli::Cli;
+use claude_usage_tray::render::format_duration;
 use tracing_subscriber::EnvFilter;
 
 fn main() -> Result<()> {
@@ -19,7 +20,6 @@ fn main() -> Result<()> {
 }
 
 fn init_tracing(level: &str) {
-    // `RUST_LOG` env var (if set) takes precedence over --log-level.
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new(level));
     tracing_subscriber::fmt()
@@ -44,12 +44,12 @@ fn run_once() -> Result<()> {
 fn print_snapshot(snap: &UsageSnapshot, creds: &Credentials) {
     let now = Utc::now();
     if let Some(b) = &snap.five_hour {
-        println!("5h: {}", format_bucket(b, now));
+        println!("5h: {}", format_one(b, now));
     } else {
         println!("5h: (no data)");
     }
     if let Some(b) = &snap.seven_day {
-        println!("7d: {}", format_bucket(b, now));
+        println!("7d: {}", format_one(b, now));
     } else {
         println!("7d: (no data)");
     }
@@ -59,24 +59,10 @@ fn print_snapshot(snap: &UsageSnapshot, creds: &Credentials) {
     );
 }
 
-fn format_bucket(b: &UsageBucket, now: DateTime<Utc>) -> String {
+fn format_one(b: &UsageBucket, now: chrono::DateTime<Utc>) -> String {
     let pct = (b.utilization * 100.0).round() as i64;
     match b.resets_at {
         Some(when) => format!("{}% (resets in {})", pct, format_duration(when - now)),
         None => format!("{}% (no reset time)", pct),
-    }
-}
-
-fn format_duration(d: Duration) -> String {
-    let secs = d.num_seconds().max(0);
-    let days = secs / 86_400;
-    let hours = (secs % 86_400) / 3600;
-    let mins = (secs % 3600) / 60;
-    if days > 0 {
-        format!("{}d {}h", days, hours)
-    } else if hours > 0 {
-        format!("{}h {}m", hours, mins)
-    } else {
-        format!("{}m", mins)
     }
 }
