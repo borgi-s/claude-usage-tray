@@ -75,7 +75,7 @@ Each stage is a tagged GitHub release, shippable on its own. Beginner-pace estim
 - `--watch` flag — loop forever, poll every 60s, print updates.
 - Handle `RateLimited` (HTTP 429) gracefully with cached last-known state.
 - Add `tracing` for structured logs.
-- Persist samples to `~/.claude-usage-tray/calibration_log.json` (append-only).
+- Persist samples to `~/.claude-usage-tray/calibration_log.jsonl` (append-only JSON-lines — one record per line). See [`2026-05-22-stage-2-watch-design.md`](2026-05-22-stage-2-watch-design.md) for schema and rationale.
 - **Learned:** loops, `std::thread::sleep`, custom error types, file append, tracing.
 - **Deliverable:** Long-running CLI. Tag `v0.2.0`.
 
