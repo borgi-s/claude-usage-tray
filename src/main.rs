@@ -1,8 +1,10 @@
+use anyhow::Result;
 use claude_usage_tray::api::credentials::load_from_default_path;
+use claude_usage_tray::api::usage::fetch_usage;
 
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<()> {
     let creds = load_from_default_path()?;
-    println!("Loaded credentials for sub `{}` tier `{}` (token len {})",
-        creds.subscription_type, creds.rate_limit_tier, creds.access_token.len());
+    let snap = fetch_usage(&creds)?;
+    println!("Fetched usage: {snap:#?}");
     Ok(())
 }

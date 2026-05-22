@@ -42,3 +42,44 @@ pub fn parse_usage_response(raw: &str) -> Result<UsageSnapshot> {
         seven_day: r.seven_day.and_then(convert),
     })
 }
+
+use crate::api::credentials::Credentials;
+use thiserror::Error;
+
+const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
+const ANTHROPIC_BETA: &str = "oauth-2025-04-20";
+
+#[derive(Debug, Error)]
+pub enum FetchError {
+    #[error("rate-limited by usage endpoint (HTTP 429)")]
+    RateLimited,
+    #[error("usage endpoint returned HTTP {0}")]
+    Http(u16),
+    #[error("network error: {0}")]
+    Network(String),
+    #[error("response parsing failed: {0}")]
+    Parse(String),
+}
+
+pub fn fetch_usage(creds: &Credentials) -> Result<UsageSnapshot, FetchError> {
+    let agent = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(10))
+        .build();
+
+    let req = agent
+        .get(USAGE_URL)
+        .set("Authorization", &format!("Bearer {}", creds.access_token))
+        .set("anthropic-beta", ANTHROPIC_BETA)
+        .set("Accept", "application/json")
+        .set("User-Agent", &format!("claude-usage-tray/{}", env!("CARGO_PKG_VERSION")));
+
+    let response = match req.call() {
+        Ok(r) => r,
+        Err(ureq::Error::Status(429, _)) => return Err(FetchError::RateLimited),
+        Err(ureq::Error::Status(code, _)) => return Err(FetchError::Http(code)),
+        Err(ureq::Error::Transport(t)) => return Err(FetchError::Network(t.to_string())),
+    };
+
+    let body = response.into_string().map_err(|e| FetchError::Network(e.to_string()))?;
+    parse_usage_response(&body).map_err(|e| FetchError::Parse(e.to_string()))
+}
