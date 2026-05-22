@@ -1,7 +1,6 @@
 use crate::api::usage::UsageSnapshot;
 use crate::render::LastStatus;
 use anyhow::{anyhow, Result};
-use windows::core::PCWSTR;
 use windows::Win32::Foundation::{HMODULE, HWND};
 use windows::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
@@ -150,7 +149,3 @@ fn base_notify_data(
     data.szTip[n] = 0;
     data
 }
-
-// Suppress unused warning until Task 7 wires it.
-#[allow(dead_code)]
-fn _wstr_usage_marker(_: PCWSTR) {}
