@@ -4,9 +4,11 @@ use clap::Parser;
 use claude_usage_tray::api::credentials::{load_from_default_path, Credentials};
 use claude_usage_tray::api::usage::{fetch_usage, UsageBucket, UsageSnapshot};
 use claude_usage_tray::cli::Cli;
+use tracing_subscriber::EnvFilter;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    init_tracing(&cli.log_level);
 
     if cli.once {
         run_once()?;
@@ -16,9 +18,25 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+fn init_tracing(level: &str) {
+    // `RUST_LOG` env var (if set) takes precedence over --log-level.
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(level));
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .with_target(false)
+        .init();
+}
+
 fn run_once() -> Result<()> {
     let creds = load_from_default_path()?;
     let snap = fetch_usage(&creds)?;
+    tracing::info!(
+        five_hour = ?snap.five_hour.as_ref().map(|b| b.utilization),
+        seven_day = ?snap.seven_day.as_ref().map(|b| b.utilization),
+        "fetched usage snapshot"
+    );
     print_snapshot(&snap, &creds);
     Ok(())
 }
