@@ -13,16 +13,18 @@ User is a **Rust beginner** (zero prior Rust experience as of 2026-05-22). Expla
 ## Active design + plans
 
 - **Design spec:** `docs/superpowers/specs/2026-05-22-rust-tray-widget-design.md` — full 8-stage roadmap, dependency rationale, scope cuts, non-goals. Read first.
-- **Stage 1 plan:** `docs/superpowers/plans/2026-05-22-stage-1-cli.md` — bite-sized task plan for the single-shot CLI. NOT yet executed.
+- **Stage 1 plan:** `docs/superpowers/plans/2026-05-22-stage-1-cli.md` — single-shot CLI. **Shipped 2026-05-22 (tag `v0.1.0`).**
+- **Stage 2 spec:** `docs/superpowers/specs/2026-05-22-stage-2-watch-design.md` — polling daemon design details (CLI, calibration log schema, render approach).
+- **Stage 2 plan:** `docs/superpowers/plans/2026-05-22-stage-2-watch.md` — bite-sized task plan for `--watch`. **Plan ready, not yet executed** as of 2026-05-22.
 
-Stages 2-8 will get their own implementation plans when each is ready to start.
+Stages 3-8 will get their own implementation plans when each is ready to start.
 
 ## Stage roadmap (summary — see spec for details)
 
 | Stage | Deliverable | Status |
 |---|---|---|
-| 1 | Single-shot CLI: read OAuth, hit `/api/oauth/usage`, print util | Plan ready, not started |
-| 2 | Polling daemon (`--watch`) | Pending |
+| 1 | Single-shot CLI: read OAuth, hit `/api/oauth/usage`, print util | ✅ Shipped — tag `v0.1.0`, pushed to GitHub |
+| 2 | Polling daemon (`--watch`) | Plan ready (`docs/superpowers/plans/2026-05-22-stage-2-watch.md`), not yet executed |
 | 3 | Win32 tray icon (basic, solid color) | Pending |
 | 4 | GDI-rendered percentage icon | Pending |
 | 5 | Calibration math (port from Python's `caps.global_cap_from_anchors`) | Pending |
@@ -51,6 +53,11 @@ Stages 2-8 will get their own implementation plans when each is ready to start.
 - No commits with `Co-Authored-By: Claude` or "Generated with Claude Code" attribution.
 - Commit style: conventional (`feat:`, `fix:`, `style:`, `chore:`). Match what the plan's commit messages use.
 - `cargo fmt` + `cargo clippy --all-targets -- -D warnings` clean before each release tag.
+
+## Known quirks (discovered during Stage 1, defer to a later stage)
+
+- **`subscriptionType` field misreports Max plan as `"pro"`.** Confirmed 2026-05-22 against borgi's real Max account — the JSON returned by `~/.claude/.credentials.json` says `"subscriptionType": "pro"`. Whatever Anthropic populates that field with doesn't distinguish Pro from Max. Stage 5 (calibration) will need a different signal to detect Max — possibly the `rateLimitTier` field, or hardcoded inference from observed util_5h ceilings. Don't trust `Credentials.subscription_type` for plan-tier decisions.
+- **`/api/oauth/usage` rate-limits to ~1 request/minute per token.** Two back-to-back fetches return HTTP 429. The Stage 2 polling daemon's minimum poll interval must respect this. Details in [the corresponding memory file](~/.claude/projects/C--Users-borgi-Documents-claude-usage-tray/memory/reference_usage_endpoint_ratelimit.md).
 
 ## Companion project (separate repo, separate concern)
 
