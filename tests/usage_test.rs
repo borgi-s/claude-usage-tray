@@ -7,12 +7,18 @@ fn parses_full_response() {
         .expect("fixture should exist");
     let snap: UsageSnapshot = parse_usage_response(&raw).expect("should parse");
 
-    let five = snap.five_hour.as_ref().expect("five_hour should be present");
+    let five = snap
+        .five_hour
+        .as_ref()
+        .expect("five_hour should be present");
     // utilization is normalized to 0.0-1.0 after parsing
     assert!((five.utilization - 0.56).abs() < 1e-9);
     assert!(five.resets_at.is_some());
 
-    let week = snap.seven_day.as_ref().expect("seven_day should be present");
+    let week = snap
+        .seven_day
+        .as_ref()
+        .expect("seven_day should be present");
     assert!((week.utilization - 0.56).abs() < 1e-9);
     assert!(week.resets_at.is_some());
 }

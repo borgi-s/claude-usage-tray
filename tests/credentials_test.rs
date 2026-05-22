@@ -16,7 +16,10 @@ fn rejects_credentials_with_expired_token() {
     let raw = r#"{"claudeAiOauth": {"accessToken":"x","expiresAt":1,"subscriptionType":"pro","rateLimitTier":"default_claude_ai"}}"#;
     let err = parse_credentials(raw).unwrap_err();
     let msg = format!("{err}");
-    assert!(msg.contains("expired"), "expected 'expired' in error message, got: {msg}");
+    assert!(
+        msg.contains("expired"),
+        "expected 'expired' in error message, got: {msg}"
+    );
 }
 
 #[test]

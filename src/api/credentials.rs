@@ -31,7 +31,9 @@ pub fn parse_credentials(raw: &str) -> Result<Credentials> {
     let file: CredentialsFile = serde_json::from_str(raw).context("invalid credentials JSON")?;
     let oauth = file.claude_ai_oauth;
 
-    let access_token = oauth.access_token.context("missing accessToken in credentials.json")?;
+    let access_token = oauth
+        .access_token
+        .context("missing accessToken in credentials.json")?;
 
     if let Some(expires_at_ms) = oauth.expires_at {
         let now_ms = SystemTime::now()
@@ -45,8 +47,12 @@ pub fn parse_credentials(raw: &str) -> Result<Credentials> {
 
     Ok(Credentials {
         access_token,
-        subscription_type: oauth.subscription_type.unwrap_or_else(|| "unknown".to_string()),
-        rate_limit_tier: oauth.rate_limit_tier.unwrap_or_else(|| "unknown".to_string()),
+        subscription_type: oauth
+            .subscription_type
+            .unwrap_or_else(|| "unknown".to_string()),
+        rate_limit_tier: oauth
+            .rate_limit_tier
+            .unwrap_or_else(|| "unknown".to_string()),
     })
 }
 

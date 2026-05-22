@@ -46,7 +46,10 @@ fn print_snapshot(snap: &UsageSnapshot, creds: &Credentials) {
     } else {
         println!("7d: (no data)");
     }
-    println!("sub: {} / tier: {}", creds.subscription_type, creds.rate_limit_tier);
+    println!(
+        "sub: {} / tier: {}",
+        creds.subscription_type, creds.rate_limit_tier
+    );
 }
 
 fn format_bucket(b: &UsageBucket, now: DateTime<Utc>) -> String {

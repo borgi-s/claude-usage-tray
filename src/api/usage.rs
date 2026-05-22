@@ -31,7 +31,11 @@ fn convert(b: RawBucket) -> Option<UsageBucket> {
     let util = b.utilization?;
     Some(UsageBucket {
         utilization: util / 100.0,
-        resets_at: b.resets_at.and_then(|s| DateTime::parse_from_rfc3339(&s).ok().map(|d| d.with_timezone(&Utc))),
+        resets_at: b.resets_at.and_then(|s| {
+            DateTime::parse_from_rfc3339(&s)
+                .ok()
+                .map(|d| d.with_timezone(&Utc))
+        }),
     })
 }
 
@@ -71,7 +75,10 @@ pub fn fetch_usage(creds: &Credentials) -> Result<UsageSnapshot, FetchError> {
         .set("Authorization", &format!("Bearer {}", creds.access_token))
         .set("anthropic-beta", ANTHROPIC_BETA)
         .set("Accept", "application/json")
-        .set("User-Agent", &format!("claude-usage-tray/{}", env!("CARGO_PKG_VERSION")));
+        .set(
+            "User-Agent",
+            &format!("claude-usage-tray/{}", env!("CARGO_PKG_VERSION")),
+        );
 
     let response = match req.call() {
         Ok(r) => r,
@@ -80,6 +87,8 @@ pub fn fetch_usage(creds: &Credentials) -> Result<UsageSnapshot, FetchError> {
         Err(ureq::Error::Transport(t)) => return Err(FetchError::Network(t.to_string())),
     };
 
-    let body = response.into_string().map_err(|e| FetchError::Network(e.to_string()))?;
+    let body = response
+        .into_string()
+        .map_err(|e| FetchError::Network(e.to_string()))?;
     parse_usage_response(&body).map_err(|e| FetchError::Parse(e.to_string()))
 }
