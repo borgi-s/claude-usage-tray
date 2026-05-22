@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 use anyhow::Result;
 use chrono::Utc;
 use clap::Parser;
@@ -8,6 +10,14 @@ use claude_usage_tray::render::format_duration;
 use tracing_subscriber::EnvFilter;
 
 fn main() -> Result<()> {
+    // Attach to parent console (if any) so --once/--watch can still print to a terminal.
+    // Harmlessly fails when launched from Explorer.
+    let _ = unsafe {
+        windows::Win32::System::Console::AttachConsole(
+            windows::Win32::System::Console::ATTACH_PARENT_PROCESS,
+        )
+    };
+
     let cli = Cli::parse();
     init_tracing(&cli.log_level);
 
@@ -15,6 +25,8 @@ fn main() -> Result<()> {
         run_once()?;
     } else if cli.watch {
         claude_usage_tray::watch::run(cli.interval.as_secs())?;
+    } else {
+        anyhow::bail!("tray mode not yet implemented (Task 8 wires this up)");
     }
     Ok(())
 }

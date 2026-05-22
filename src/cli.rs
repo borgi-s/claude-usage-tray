@@ -29,7 +29,7 @@ impl Interval {
 )]
 #[command(group(
     ArgGroup::new("mode")
-        .required(true)
+        .required(false)
         .multiple(false)
         .args(["once", "watch"])
 ))]
