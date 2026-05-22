@@ -11,13 +11,12 @@ use windows::core::PCWSTR;
 use windows::Win32::Foundation::{HMODULE, HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu,
-    DispatchMessageW, GetCursorPos, GetMessageW, GetWindowLongPtrW, PostQuitMessage,
-    RegisterClassExW, SetForegroundWindow, SetWindowLongPtrW, TrackPopupMenu,
-    TranslateMessage, CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, HMENU, HICON,
-    HWND_MESSAGE, MF_STRING, MSG, TPM_LEFTBUTTON, TPM_RIGHTBUTTON, WINDOW_EX_STYLE,
-    WINDOW_STYLE, WM_APP, WM_COMMAND, WM_DESTROY, WM_NCCREATE, WM_NCDESTROY,
-    WM_RBUTTONUP, WNDCLASSEXW,
+    AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DispatchMessageW,
+    GetCursorPos, GetMessageW, GetWindowLongPtrW, PostQuitMessage, RegisterClassExW,
+    SetForegroundWindow, SetWindowLongPtrW, TrackPopupMenu, TranslateMessage, CREATESTRUCTW,
+    CW_USEDEFAULT, GWLP_USERDATA, HICON, HMENU, HWND_MESSAGE, MF_STRING, MSG, TPM_LEFTBUTTON,
+    TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_COMMAND, WM_DESTROY, WM_NCCREATE,
+    WM_NCDESTROY, WM_RBUTTONUP, WNDCLASSEXW,
 };
 
 /// Custom message: shell sends this when the user interacts with the tray icon.
@@ -28,10 +27,9 @@ pub const IDM_QUIT: usize = 1;
 
 /// Window class name (UTF-16, null-terminated).
 const CLASS_NAME: &[u16] = &[
-    'c' as u16, 'l' as u16, 'a' as u16, 'u' as u16, 'd' as u16, 'e' as u16, '-' as u16,
-    'u' as u16, 's' as u16, 'a' as u16, 'g' as u16, 'e' as u16, '-' as u16, 't' as u16,
-    'r' as u16, 'a' as u16, 'y' as u16, '.' as u16, 't' as u16, 'r' as u16, 'a' as u16,
-    'y' as u16, 0,
+    'c' as u16, 'l' as u16, 'a' as u16, 'u' as u16, 'd' as u16, 'e' as u16, '-' as u16, 'u' as u16,
+    's' as u16, 'a' as u16, 'g' as u16, 'e' as u16, '-' as u16, 't' as u16, 'r' as u16, 'a' as u16,
+    'y' as u16, '.' as u16, 't' as u16, 'r' as u16, 'a' as u16, 'y' as u16, 0,
 ];
 
 /// State carried inside the window via GWLP_USERDATA.

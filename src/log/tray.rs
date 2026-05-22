@@ -22,8 +22,7 @@ pub fn init_file_subscriber(level: &str) -> anyhow::Result<WorkerGuard> {
 
     let (non_blocking, guard) = tracing_appender::non_blocking(appender);
 
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(level));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));
 
     tracing_subscriber::fmt()
         .with_env_filter(filter)

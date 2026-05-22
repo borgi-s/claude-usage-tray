@@ -36,12 +36,16 @@ pub fn run(interval_secs: u64) -> Result<()> {
     let hwnd = window::create(hinst, state)?;
 
     // Build initial tooltip and register the tray icon.
-    let initial_tooltip =
-        window::format_tooltip(&LastStatus::Initial, None, chrono::Utc::now());
+    let initial_tooltip = window::format_tooltip(&LastStatus::Initial, None, chrono::Utc::now());
     {
         // Borrow the icons through GWLP_USERDATA-owned state for the initial add.
         let initial_icon = peek_initial_icon(hwnd);
-        icon::add(hwnd, window::WM_APP_TRAYICON, initial_icon, &initial_tooltip)?;
+        icon::add(
+            hwnd,
+            window::WM_APP_TRAYICON,
+            initial_icon,
+            &initial_tooltip,
+        )?;
     }
 
     let send_hwnd = poller::SendHwnd(hwnd);
@@ -60,7 +64,9 @@ pub fn run(interval_secs: u64) -> Result<()> {
 
 /// Peek at the window's TrayState long enough to retrieve its initial icon.
 /// Used only at startup, immediately after `window::create`.
-fn peek_initial_icon(hwnd: windows::Win32::Foundation::HWND) -> windows::Win32::UI::WindowsAndMessaging::HICON {
+fn peek_initial_icon(
+    hwnd: windows::Win32::Foundation::HWND,
+) -> windows::Win32::UI::WindowsAndMessaging::HICON {
     use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongPtrW, GWLP_USERDATA};
     let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *const window::TrayState;
     // SAFETY: pointer set by `create`; window is on this thread; we read only.

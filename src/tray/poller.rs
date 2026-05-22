@@ -57,7 +57,10 @@ fn polling_loop(
     hwnd: SendHwnd,
     tx: Sender<PollEvent>,
 ) {
-    tracing::info!(interval_secs = interval.as_secs(), "polling thread starting");
+    tracing::info!(
+        interval_secs = interval.as_secs(),
+        "polling thread starting"
+    );
 
     while !shutdown.load(Ordering::Relaxed) {
         let fetch_at = Instant::now();
