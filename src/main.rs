@@ -19,19 +19,22 @@ fn main() -> Result<()> {
     };
 
     let cli = Cli::parse();
-    init_tracing(&cli.log_level);
 
     if cli.once {
+        init_tracing_stderr(&cli.log_level);
         run_once()?;
     } else if cli.watch {
+        init_tracing_stderr(&cli.log_level);
         claude_usage_tray::watch::run(cli.interval.as_secs())?;
     } else {
-        anyhow::bail!("tray mode not yet implemented (Task 8 wires this up)");
+        let _guard = claude_usage_tray::log::tray::init_file_subscriber(&cli.log_level)?;
+        claude_usage_tray::tray::run(cli.interval.as_secs())?;
+        // _guard drops at end of this branch → tracing-appender flushes pending events.
     }
     Ok(())
 }
 
-fn init_tracing(level: &str) {
+fn init_tracing_stderr(level: &str) {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));
     tracing_subscriber::fmt()
         .with_env_filter(filter)
