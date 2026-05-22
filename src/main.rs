@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 use anyhow::Result;
 use chrono::Utc;
 use clap::Parser;
@@ -8,18 +10,31 @@ use claude_usage_tray::render::format_duration;
 use tracing_subscriber::EnvFilter;
 
 fn main() -> Result<()> {
+    // Attach to parent console (if any) so --once/--watch can still print to a terminal.
+    // Harmlessly fails when launched from Explorer.
+    let _ = unsafe {
+        windows::Win32::System::Console::AttachConsole(
+            windows::Win32::System::Console::ATTACH_PARENT_PROCESS,
+        )
+    };
+
     let cli = Cli::parse();
-    init_tracing(&cli.log_level);
 
     if cli.once {
+        init_tracing_stderr(&cli.log_level);
         run_once()?;
     } else if cli.watch {
+        init_tracing_stderr(&cli.log_level);
         claude_usage_tray::watch::run(cli.interval.as_secs())?;
+    } else {
+        let _guard = claude_usage_tray::log::tray::init_file_subscriber(&cli.log_level)?;
+        claude_usage_tray::tray::run(cli.interval.as_secs())?;
+        // _guard drops at end of this branch → tracing-appender flushes pending events.
     }
     Ok(())
 }
 
-fn init_tracing(level: &str) {
+fn init_tracing_stderr(level: &str) {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));
     tracing_subscriber::fmt()
         .with_env_filter(filter)

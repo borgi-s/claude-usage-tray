@@ -1,6 +1,5 @@
 use crate::api::credentials::{load_from_default_path, Credentials};
-use crate::api::usage::{fetch_usage, FetchError, UsageSnapshot};
-use crate::log::calibration::append_to_default_path;
+use crate::api::usage::{FetchError, UsageSnapshot};
 use crate::render::{draw_frame, Frame, LastStatus};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -36,13 +35,8 @@ pub fn run(interval_secs: u64) -> Result<()> {
 }
 
 fn tick(creds: &Credentials, state: &mut WatchState) {
-    match fetch_usage(creds) {
+    match crate::poll::poll_once(creds) {
         Ok(snap) => {
-            // Append BEFORE updating in-memory state so a log failure doesn't
-            // make us forget the fresh sample (we never propagate log errors).
-            if let Err(e) = append_to_default_path(&snap, creds) {
-                tracing::warn!(error = %e, "calibration log write failed");
-            }
             state.last_success = Some((snap, Utc::now()));
             state.last_status = LastStatus::Ok;
         }
