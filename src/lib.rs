@@ -4,4 +4,5 @@ pub mod log;
 pub mod paths;
 pub mod poll;
 pub mod render;
+pub mod tray;
 pub mod watch;
