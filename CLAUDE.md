@@ -15,7 +15,7 @@ User is a **Rust beginner** (zero prior Rust experience as of 2026-05-22). Expla
 - **Design spec:** `docs/superpowers/specs/2026-05-22-rust-tray-widget-design.md` — full 8-stage roadmap, dependency rationale, scope cuts, non-goals. Read first.
 - **Stage 1 plan:** `docs/superpowers/plans/2026-05-22-stage-1-cli.md` — single-shot CLI. **Shipped 2026-05-22 (tag `v0.1.0`).**
 - **Stage 2 spec:** `docs/superpowers/specs/2026-05-22-stage-2-watch-design.md` — polling daemon design details (CLI, calibration log schema, render approach).
-- **Stage 2 plan:** `docs/superpowers/plans/2026-05-22-stage-2-watch.md` — bite-sized task plan for `--watch`. **Plan ready, not yet executed** as of 2026-05-22.
+- **Stage 2 plan:** `docs/superpowers/plans/2026-05-22-stage-2-watch.md` — bite-sized task plan for `--watch`. **Shipped 2026-05-22 (tag `v0.2.0`).**
 
 Stages 3-8 will get their own implementation plans when each is ready to start.
 
@@ -24,7 +24,7 @@ Stages 3-8 will get their own implementation plans when each is ready to start.
 | Stage | Deliverable | Status |
 |---|---|---|
 | 1 | Single-shot CLI: read OAuth, hit `/api/oauth/usage`, print util | ✅ Shipped — tag `v0.1.0`, pushed to GitHub |
-| 2 | Polling daemon (`--watch`) | Plan ready (`docs/superpowers/plans/2026-05-22-stage-2-watch.md`), not yet executed |
+| 2 | Polling daemon (`--watch`) | ✅ Shipped — tag `v0.2.0`, pushed to GitHub |
 | 3 | Win32 tray icon (basic, solid color) | Pending |
 | 4 | GDI-rendered percentage icon | Pending |
 | 5 | Calibration math (port from Python's `caps.global_cap_from_anchors`) | Pending |
