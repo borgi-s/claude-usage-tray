@@ -20,7 +20,7 @@ use std::sync::Arc;
 pub fn run(interval_secs: u64) -> Result<()> {
     let creds = load_from_default_path()?;
     let hinst = window::current_hinstance()?;
-    let icons = icon::IconSet::new(hinst)?;
+    let renderer = icon::IconRenderer::new();
 
     let shutdown = Arc::new(AtomicBool::new(false));
     let (tx, rx) = mpsc::channel();
@@ -28,25 +28,17 @@ pub fn run(interval_secs: u64) -> Result<()> {
     let state = Box::new(window::TrayState {
         last_sample: None,
         last_status: LastStatus::Initial,
-        icons,
+        renderer,
+        current_hicon: None,
         rx,
         shutdown: shutdown.clone(),
     });
 
     let hwnd = window::create(hinst, state)?;
 
-    // Build initial tooltip and register the tray icon.
+    // Build initial tooltip and register the tray icon with a freshly-rendered HICON.
     let initial_tooltip = window::format_tooltip(&LastStatus::Initial, None, chrono::Utc::now());
-    {
-        // Borrow the icons through GWLP_USERDATA-owned state for the initial add.
-        let initial_icon = peek_initial_icon(hwnd);
-        icon::add(
-            hwnd,
-            window::WM_APP_TRAYICON,
-            initial_icon,
-            &initial_tooltip,
-        )?;
-    }
+    render_and_store_initial_icon(hwnd, &initial_tooltip)?;
 
     let send_hwnd = poller::SendHwnd(hwnd);
     let poll_handle = poller::spawn(creds, interval_secs, shutdown.clone(), send_hwnd, tx);
@@ -62,14 +54,19 @@ pub fn run(interval_secs: u64) -> Result<()> {
     Ok(())
 }
 
-/// Peek at the window's TrayState long enough to retrieve its initial icon.
-/// Used only at startup, immediately after `window::create`.
-fn peek_initial_icon(
+/// Render the initial gray-question icon and register it with the shell.
+/// Stores the HICON in `state.current_hicon` so the next render can destroy it.
+fn render_and_store_initial_icon(
     hwnd: windows::Win32::Foundation::HWND,
-) -> windows::Win32::UI::WindowsAndMessaging::HICON {
+    tooltip: &[u16],
+) -> anyhow::Result<()> {
     use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongPtrW, GWLP_USERDATA};
-    let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *const window::TrayState;
-    // SAFETY: pointer set by `create`; window is on this thread; we read only.
-    let state = unsafe { &*state_ptr };
-    state.icons.for_state(&state.last_status, None)
+    let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut window::TrayState;
+    // SAFETY: pointer set by `create`; window is on this thread; sole owner.
+    let state = unsafe { &mut *state_ptr };
+
+    let hicon = state.renderer.render(&state.last_status, None)?;
+    state.current_hicon = Some(hicon);
+    icon::add(hwnd, window::WM_APP_TRAYICON, hicon, tooltip)?;
+    Ok(())
 }

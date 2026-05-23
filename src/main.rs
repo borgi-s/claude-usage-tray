@@ -8,6 +8,39 @@ use claude_usage_tray::api::usage::{fetch_usage, UsageBucket, UsageSnapshot};
 use claude_usage_tray::cli::Cli;
 use claude_usage_tray::render::format_duration;
 use tracing_subscriber::EnvFilter;
+use windows::Win32::Graphics::GdiPlus::{
+    GdiplusShutdown, GdiplusStartup, GdiplusStartupInput, Status,
+};
+
+/// RAII guard that initializes GDI+ in `init()` and shuts it down on drop.
+/// We hold one for the whole process lifetime so cleanup runs on every exit path
+/// (including `?` early-returns and panic unwinding).
+struct GdiplusGuard(usize);
+
+impl GdiplusGuard {
+    fn init() -> Result<Self> {
+        let mut token: usize = 0;
+        let input = GdiplusStartupInput {
+            GdiplusVersion: 1,
+            ..Default::default()
+        };
+        // SAFETY: token is on the stack and the input pointer is valid.
+        // GdiplusStartup writes the token and returns a Status code.
+        let status = unsafe { GdiplusStartup(&mut token, &input, std::ptr::null_mut()) };
+        if status != Status(0) {
+            anyhow::bail!("GdiplusStartup failed with status {:?}", status);
+        }
+        Ok(Self(token))
+    }
+}
+
+impl Drop for GdiplusGuard {
+    fn drop(&mut self) {
+        // SAFETY: token was obtained from a successful GdiplusStartup and we are
+        // the sole owner. After shutdown, no more GDI+ calls happen.
+        unsafe { GdiplusShutdown(self.0) };
+    }
+}
 
 fn main() -> Result<()> {
     // Attach to parent console (if any) so --once/--watch can still print to a terminal.
@@ -19,6 +52,8 @@ fn main() -> Result<()> {
     };
 
     let cli = Cli::parse();
+
+    let _gdiplus = GdiplusGuard::init()?;
 
     if cli.once {
         init_tracing_stderr(&cli.log_level);
