@@ -33,10 +33,10 @@ Settled during the Stage 6 brainstorm:
 | Hour-of-day overlay | YES — faint dashed cap-vs-time curve on the 5h chart |
 | Calendar bands | YES — light grey shading for weekend days + nights (22:00–06:00 local) |
 | Range selector | YES — 1D / 5D / 14D / 1M / All buttons above each chart |
-| Window lifecycle | Close button destroys; one window allowed; re-click raises if open |
+| Window lifecycle | Single persistent dashboard thread for the process lifetime. Close button parks the window **off-screen** (NOT destroy, NOT `Visible(false)`); re-click moves it back on-screen. See "Window lifecycle" below for why. |
 | Threading | Dashboard runs on its own thread; eframe::run_native blocks that thread; `winit::EventLoopBuilder::with_any_thread(true)` opts into non-main-thread EventLoop creation on Windows |
-| HWND raise-to-front | `EnumWindows`-by-title (`"Claude usage tracker"`), stored in `Arc<Mutex<Option<HWND>>>` — non-blocking handoff from dashboard thread to tray UI thread |
-| Dashboard shutdown | On Quit, tray posts `WM_CLOSE` to the dashboard HWND, then joins the thread |
+| Tray↔dashboard signalling | `Arc<DashboardSignals>` with `show_requested` / `quit_requested` atomics + a published `egui::Context` clone. Tray sets a flag + `ctx.request_repaint()`; dashboard polls the flags each frame. No HWND tracking. |
+| Dashboard shutdown | On Quit, tray sets `quit_requested`; the dashboard's next frame sends `ViewportCommand::Close`, run_native returns, thread joins |
 | Shared data | `Arc<RwLock<AppSnapshot>>` written by polling thread, read by tray + dashboard |
 | Vec<Turn> sharing | Wrapped in `Arc<Vec<Turn>>` inside the snapshot to avoid 22 MB clones |
 | Uncalibrated handling | If caps are None, charts show raw `output_tokens` on y-axis with no 100% line and a banner: "Uncalibrated — chart shows raw output tokens until first ≥95% anchor is observed" |
@@ -184,6 +184,13 @@ pub fn cost_weighted(turn: &Turn) -> f64 {
 Computed at use-time, not stored on `Turn`. Keeps the cache schema unchanged (`SCHEMA_VERSION` still 1; no migration needed).
 
 ## Window lifecycle
+
+> **⚠️ REVISED DURING IMPLEMENTATION (2026-05-23).** The design below (close = destroy, re-click respawns a fresh `run_native`, `EnumWindows`-by-title for raise-to-front, `WM_CLOSE` on Quit) does **NOT work** and was replaced. Two hard-won facts:
+>
+> 1. **winit allows exactly one `EventLoop` per process.** A second `eframe::run_native` (even on a fresh thread) fails with `WinitEventLoop(RecreationAttempt)`. So "close destroys, reopen respawns" is impossible — the dashboard thread must be created **once** and live for the whole process.
+> 2. **Hiding the root viewport via `ViewportCommand::Visible(false)` parks eframe's event loop.** Once parked it ignores both `request_repaint_after` timers AND cross-thread `ctx.request_repaint()`, so the window can never be brought back. Confirmed via debug logging: after a hide, `update()` never ran again.
+>
+> **What actually shipped:** a single persistent dashboard thread. Tray↔dashboard communication is via `Arc<DashboardSignals>` (`show_requested` / `quit_requested` atomics + a published `egui::Context` clone). On close, the window is **parked off-screen** (`ViewportCommand::OuterPosition([-32000, -32000])`) with `CancelClose` — it stays *visible to winit* so the loop keeps ticking and notices the show flag. Re-click moves it back to its saved position + `Focus`. Quit sets `quit_requested` → next frame sends `ViewportCommand::Close`. The `find_hwnd_by_title` / `SendHwnd` / `SetForegroundWindow` / `WM_CLOSE` machinery described below was all removed. **See `src/dashboard/{mod,app}.rs` and `src/tray/window.rs` for the real implementation.** The rest of this section is retained for historical context only.
 
 ```rust
 // tray/window.rs — gains fields on TrayState
