@@ -2,11 +2,20 @@ use crate::api::usage::UsageSnapshot;
 use crate::render::LastStatus;
 use anyhow::{anyhow, Result};
 use windows::Win32::Foundation::{HMODULE, HWND};
+use windows::Win32::Graphics::GdiPlus::{
+    GdipCreateBitmapFromScan0, GdipCreateHICONFromBitmap, GdipDeleteGraphics, GdipDisposeImage,
+    GdipGetImageGraphicsContext, GdipGraphicsClear, GpBitmap, GpGraphics, GpImage, Status,
+};
 use windows::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
     NOTIFYICONDATAW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{CreateIcon, DestroyIcon, HICON};
+
+// PixelFormat32bppARGB is not exported as a named constant in windows-0.58.
+// Value: (10 | (32 << 8) | PixelFormatAlpha | PixelFormatGDI | PixelFormatCanonical)
+//       = 10 | 8192 | 262144 | 131072 | 2097152 = 0x0026200A
+const PIXEL_FORMAT_32BPP_ARGB: i32 = 0x0026_200A;
 
 /// Four pre-rendered solid-color tray icons, allocated once at startup and
 /// reused across renders. Released via `Drop` (calls `DestroyIcon` on each).
@@ -185,7 +194,6 @@ pub(crate) enum Glyph {
 
 /// Pure: pick the max utilization across the two buckets.
 /// Returns None only if neither bucket has data.
-#[allow(dead_code)]
 fn util_max(snap: &UsageSnapshot) -> Option<f64> {
     let h5 = snap.five_hour.as_ref().map(|b| b.utilization);
     let d7 = snap.seven_day.as_ref().map(|b| b.utilization);
@@ -203,7 +211,6 @@ fn util_max(snap: &UsageSnapshot) -> Option<f64> {
 /// - Initial / RateLimited / Error / (Ok + no sample) → gray + `?`
 /// - Ok + util > 1.0                                   → red + `!`
 /// - Ok + util ≤ 1.0                                   → gradient + digits
-#[allow(dead_code)]
 pub(crate) fn compute_visual(
     status: &LastStatus,
     sample: Option<&UsageSnapshot>,
@@ -221,10 +228,92 @@ pub(crate) fn compute_visual(
 }
 
 /// Round a util in [0.0, 1.0] to an integer percent in 0..=100.
-#[allow(dead_code)]
 fn percent_int(util: f64) -> u8 {
     let pct = (util.clamp(0.0, 1.0) * 100.0).round();
     pct as u8
+}
+
+/// Stateless renderer that produces a fresh 16×16 HICON per call.
+/// Each render does a complete GDI+ pipeline: create bitmap → fill → convert → return HICON.
+/// Caller is responsible for `DestroyIcon` on the returned handle.
+pub struct IconRenderer;
+
+impl IconRenderer {
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Render the current visual state to a fresh HICON.
+    /// Returns an error if any GDI+ call fails.
+    pub fn render(
+        &self,
+        status: &LastStatus,
+        sample: Option<&UsageSnapshot>,
+    ) -> Result<HICON> {
+        let ((r, g, b), _glyph) = compute_visual(status, sample);
+
+        // 1) Create a 16x16 ARGB bitmap.
+        // SAFETY: out-pointer is valid; stride 0 means "let GDI+ pick"; scan0 None means
+        // "allocate a fresh buffer." PIXEL_FORMAT_32BPP_ARGB requests premultiplied ARGB.
+        let mut bitmap: *mut GpBitmap = std::ptr::null_mut();
+        let s = unsafe {
+            GdipCreateBitmapFromScan0(16, 16, 0, PIXEL_FORMAT_32BPP_ARGB, None, &mut bitmap)
+        };
+        if s != Status(0) {
+            anyhow::bail!("GdipCreateBitmapFromScan0 failed: {s:?}");
+        }
+
+        // 2) Get a Graphics for that bitmap.
+        // SAFETY: bitmap was just created successfully; cast to GpImage is the GDI+ idiom.
+        let mut graphics: *mut GpGraphics = std::ptr::null_mut();
+        let s = unsafe {
+            GdipGetImageGraphicsContext(bitmap as *mut GpImage, &mut graphics)
+        };
+        if s != Status(0) {
+            // SAFETY: bitmap is valid; we own it.
+            unsafe { GdipDisposeImage(bitmap as *mut GpImage); }
+            anyhow::bail!("GdipGetImageGraphicsContext failed: {s:?}");
+        }
+
+        // 3) Fill background. GDI+ Argb format is 0xAARRGGBB.
+        let argb = 0xFF00_0000u32 | (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b);
+        // SAFETY: graphics is valid; argb is u32 (GdipGraphicsClear takes u32).
+        let s = unsafe { GdipGraphicsClear(graphics, argb) };
+        if s != Status(0) {
+            // SAFETY: both handles valid.
+            unsafe {
+                GdipDeleteGraphics(graphics);
+                GdipDisposeImage(bitmap as *mut GpImage);
+            }
+            anyhow::bail!("GdipGraphicsClear failed: {s:?}");
+        }
+
+        // TODO Task 7: draw the glyph here.
+
+        // 4) Convert to HICON. The HICON owns its pixel data independently
+        //    from the bitmap, so we can dispose the bitmap right after.
+        let mut hicon = HICON::default();
+        // SAFETY: bitmap valid; hicon out-pointer valid.
+        let s = unsafe { GdipCreateHICONFromBitmap(bitmap, &mut hicon) };
+
+        // 5) Clean up GDI+ objects regardless of conversion outcome.
+        // SAFETY: both handles valid.
+        unsafe {
+            GdipDeleteGraphics(graphics);
+            GdipDisposeImage(bitmap as *mut GpImage);
+        }
+
+        if s != Status(0) {
+            anyhow::bail!("GdipCreateHICONFromBitmap failed: {s:?}");
+        }
+        Ok(hicon)
+    }
+}
+
+impl Default for IconRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
