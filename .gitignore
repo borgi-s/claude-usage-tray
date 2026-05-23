@@ -11,3 +11,6 @@ Thumbs.db
 # Local state / secrets (these belong in the user home dir, never in the repo)
 .env
 *.log
+
+# Brainstorm-companion session content (per-design mockups, not source of truth)
+.superpowers/
