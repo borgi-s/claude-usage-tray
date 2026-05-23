@@ -82,6 +82,17 @@ pub fn five_hour_burn_at(turns: &[Turn], anchor_ts: DateTime<Utc>) -> u64 {
     burn
 }
 
+/// Sum `output_tokens` since the most-recent Sun 07:00-local reset.
+/// `turns` may be in any order; we filter, not iterate-in-order.
+pub fn weekly_burn_at(turns: &[Turn], anchor_ts: DateTime<Utc>) -> u64 {
+    let win_start = last_weekly_reset(anchor_ts);
+    turns
+        .iter()
+        .filter(|t| t.ts >= win_start && t.ts <= anchor_ts)
+        .map(|t| t.output_tokens)
+        .sum()
+}
+
 #[allow(dead_code)]
 fn _silence_imports(_: Weekday) {}
 
@@ -183,5 +194,28 @@ mod tests {
         let reset = last_weekly_reset(anchor);
         // Prior Sun = 2026-05-17 05:00 UTC.
         assert_eq!(reset, utc(2026, 5, 17, 5, 0));
+    }
+
+    #[test]
+    fn weekly_burn_at_sums_since_last_reset() {
+        let turns = vec![
+            turn(utc(2026, 5, 17, 4, 0), 999),   // before Sun 05:00 UTC reset — excluded
+            turn(utc(2026, 5, 17, 6, 0), 100),   // after reset
+            turn(utc(2026, 5, 19, 12, 0), 200),
+            turn(utc(2026, 5, 23, 8, 0), 300),
+        ];
+        let anchor = utc(2026, 5, 23, 12, 0);  // Sat — last reset was Sun 17 05:00 UTC
+        assert_eq!(weekly_burn_at(&turns, anchor), 600);
+    }
+
+    #[test]
+    fn weekly_burn_at_after_reset_excludes_prior_week() {
+        let turns = vec![
+            turn(utc(2026, 5, 23, 12, 0), 500),
+            turn(utc(2026, 5, 24, 6, 0), 100),  // after Sun 05:00 UTC reset
+        ];
+        let anchor = utc(2026, 5, 24, 8, 0);
+        // Only the 100 token row falls within the new week.
+        assert_eq!(weekly_burn_at(&turns, anchor), 100);
     }
 }
