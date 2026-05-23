@@ -93,6 +93,64 @@ pub fn weekly_burn_at(turns: &[Turn], anchor_ts: DateTime<Utc>) -> u64 {
         .sum()
 }
 
+use crate::calibration::WindowKind;
+use crate::log::calibration::CalibrationSample;
+
+/// Median implied cap across all valid anchors. Returns (None, 0) if no anchors.
+///
+/// An anchor is a `CalibrationSample` where the relevant util (5h or weekly)
+/// falls in `[MIN_ANCHOR_UTIL, MAX_ANCHOR_UTIL]`. For each anchor we compute
+/// `burn_in_window(anchor.ts) / util` summing `output_tokens`, then take the
+/// median across anchors.
+pub fn global_cap_from_anchors(
+    log: &[CalibrationSample],
+    turns: &[Turn],
+    kind: WindowKind,
+) -> (Option<f64>, usize) {
+    let mut implied: Vec<f64> = Vec::new();
+    for s in log {
+        let util_opt = match kind {
+            WindowKind::FiveHour => s.five_hour_util,
+            WindowKind::Weekly => s.seven_day_util,
+        };
+        let Some(util) = util_opt else { continue };
+        if util < config::MIN_ANCHOR_UTIL || util > config::MAX_ANCHOR_UTIL {
+            continue;
+        }
+        let burn = match kind {
+            WindowKind::FiveHour => five_hour_burn_at(turns, s.ts),
+            WindowKind::Weekly => weekly_burn_at(turns, s.ts),
+        };
+        if burn == 0 || util <= 0.0 {
+            continue;
+        }
+        implied.push(burn as f64 / util);
+    }
+    if implied.is_empty() {
+        return (None, 0);
+    }
+    let n = implied.len();
+    implied.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let median = if n % 2 == 1 {
+        implied[n / 2]
+    } else {
+        (implied[n / 2 - 1] + implied[n / 2]) / 2.0
+    };
+    (Some(median), n)
+}
+
+/// Compute both 5h and weekly caps in one call.
+pub fn derive_caps(log: &[CalibrationSample], turns: &[Turn]) -> DerivedCaps {
+    let (cap_5h, n5) = global_cap_from_anchors(log, turns, WindowKind::FiveHour);
+    let (cap_week, n7) = global_cap_from_anchors(log, turns, WindowKind::Weekly);
+    DerivedCaps {
+        cap_5h,
+        cap_week,
+        n_anchors_5h: n5,
+        n_anchors_week: n7,
+    }
+}
+
 #[allow(dead_code)]
 fn _silence_imports(_: Weekday) {}
 
@@ -217,5 +275,64 @@ mod tests {
         let anchor = utc(2026, 5, 24, 8, 0);
         // Only the 100 token row falls within the new week.
         assert_eq!(weekly_burn_at(&turns, anchor), 100);
+    }
+
+    use crate::log::calibration::CalibrationSample;
+    use crate::calibration::WindowKind;
+
+    fn sample(ts: DateTime<Utc>, util_5h: f64, util_7d: f64) -> CalibrationSample {
+        CalibrationSample {
+            schema_version: 1,
+            ts,
+            five_hour_util: Some(util_5h),
+            five_hour_resets_at: None,
+            seven_day_util: Some(util_7d),
+            seven_day_resets_at: None,
+            subscription_type: "pro".to_string(),
+            rate_limit_tier: "default_claude_ai".to_string(),
+        }
+    }
+
+    #[test]
+    fn global_cap_zero_anchors_returns_none() {
+        let log = vec![sample(utc(2026, 5, 24, 10, 0), 0.5, 0.4)];
+        let turns = vec![turn(utc(2026, 5, 24, 9, 0), 100)];
+        let (cap, n) = global_cap_from_anchors(&log, &turns, WindowKind::FiveHour);
+        assert!(cap.is_none());
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn global_cap_single_anchor_returns_burn_over_util() {
+        // burn at anchor = 1000; util = 1.00 → cap = 1000.
+        let log = vec![sample(utc(2026, 5, 24, 10, 0), 1.00, 0.5)];
+        let turns = vec![
+            turn(utc(2026, 5, 24, 8, 0), 400),
+            turn(utc(2026, 5, 24, 9, 0), 600),
+        ];
+        let (cap, n) = global_cap_from_anchors(&log, &turns, WindowKind::FiveHour);
+        assert_eq!(cap, Some(1000.0));
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn global_cap_multi_anchor_returns_median() {
+        // Three anchors, all util=1.00, but bigger windows for some.
+        // Implied caps: 100, 200, 300 → median 200.
+        let log = vec![
+            sample(utc(2026, 5, 24, 10, 0), 1.00, 0.5),
+            sample(utc(2026, 5, 24, 16, 0), 1.00, 0.5),
+            sample(utc(2026, 5, 24, 22, 0), 1.00, 0.5),
+        ];
+        let turns = vec![
+            turn(utc(2026, 5, 24, 9, 30), 100),    // anchor 1: burn 100, util 1 → cap 100
+            // Anchor 1's window ends, anchor 2 starts a new window. 6h gap > 4.5h.
+            turn(utc(2026, 5, 24, 15, 30), 200),   // anchor 2: burn 200, util 1 → cap 200
+            // Anchor 2's window ends, anchor 3 starts a new window.
+            turn(utc(2026, 5, 24, 21, 30), 300),   // anchor 3: burn 300, util 1 → cap 300
+        ];
+        let (cap, n) = global_cap_from_anchors(&log, &turns, WindowKind::FiveHour);
+        assert_eq!(cap, Some(200.0));
+        assert_eq!(n, 3);
     }
 }
