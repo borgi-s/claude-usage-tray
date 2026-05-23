@@ -13,6 +13,7 @@ pub struct DashboardApp {
     hwnd_found: bool,
     range_5h: Range,
     range_week: Range,
+    range_daily: Range,
 }
 
 impl DashboardApp {
@@ -23,6 +24,7 @@ impl DashboardApp {
             hwnd_found: false,
             range_5h: Range::D5,
             range_week: Range::D14,
+            range_daily: Range::D14,
         }
     }
 
@@ -56,6 +58,10 @@ impl eframe::App for DashboardApp {
             ui.separator();
             ui.add_space(8.0);
             crate::dashboard::chart_weekly::render(ui, &snap, &mut self.range_week);
+            ui.add_space(16.0);
+            ui.separator();
+            ui.add_space(8.0);
+            crate::dashboard::chart_daily::render(ui, &snap, &mut self.range_daily);
         });
 
         // Request a repaint at ~30fps so the snapshot view stays fresh.
