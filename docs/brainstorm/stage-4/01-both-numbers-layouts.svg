@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 1240" font-family="system-ui, -apple-system, Segoe UI, sans-serif">
+  <style>
+    .title { font-size: 22px; font-weight: 700; fill: #111; }
+    .sub   { font-size: 14px; fill: #555; }
+    .opt   { font-size: 17px; font-weight: 700; fill: #111; }
+    .desc  { font-size: 13px; fill: #444; }
+    .lbl   { font-size: 12px; fill: #888; }
+    .pixel { image-rendering: pixelated; }
+  </style>
+
+  <!-- background -->
+  <rect width="100%" height="100%" fill="#fafafa"/>
+
+  <!-- HEADER -->
+  <text x="30" y="38" class="title">Stage 4 — "both numbers" on a 16×16 tray icon</text>
+  <text x="30" y="62" class="sub">Sample state: 5h util = 57%, 7d util = 42%. Color = green (max &lt; 60%).</text>
+  <text x="30" y="80" class="sub">Each option shown at actual 16×16 size AND 8× zoom. Pick one (or push back).</text>
+
+  <!-- ===================== OPTION 1: max only ===================== -->
+  <rect x="20" y="110" width="580" height="220" fill="#ffffff" stroke="#e3e3e3"/>
+  <text x="30" y="140" class="opt">A — Max only (what I originally proposed)</text>
+  <text x="30" y="162" class="desc">Single number = max(5h, 7d) = 57. Tooltip still shows both 5h and 7d.</text>
+  <text x="30" y="180" class="desc">Cleanest. Sacrifices: you can't see at a glance which limit dominates.</text>
+
+  <text x="30" y="210" class="lbl">16×16 actual</text>
+  <rect x="30" y="220" width="16" height="16" fill="#2eb82e"/>
+  <text x="32" y="234" font-family="Segoe UI, sans-serif" font-size="13" font-weight="700" fill="white">57</text>
+
+  <text x="200" y="210" class="lbl">8× zoom</text>
+  <rect x="200" y="220" width="128" height="128" fill="#2eb82e"/>
+  <text x="216" y="320" font-family="Segoe UI, sans-serif" font-size="96" font-weight="700" fill="white">57</text>
+
+  <!-- ===================== OPTION 2: stacked ===================== -->
+  <rect x="20" y="350" width="580" height="220" fill="#ffffff" stroke="#e3e3e3"/>
+  <text x="30" y="380" class="opt">B — Stacked: 5h on top, 7d on bottom</text>
+  <text x="30" y="402" class="desc">Both visible at all times. Each row ~7 px tall.</text>
+  <text x="30" y="420" class="desc">Tight at 100% DPI; legibility drops fast on high-DPI scaling.</text>
+
+  <text x="30" y="450" class="lbl">16×16 actual</text>
+  <rect x="30" y="460" width="16" height="16" fill="#2eb82e"/>
+  <text x="32" y="468" font-family="Segoe UI, sans-serif" font-size="7" font-weight="700" fill="white">57</text>
+  <text x="32" y="475" font-family="Segoe UI, sans-serif" font-size="7" font-weight="700" fill="white">42</text>
+
+  <text x="200" y="450" class="lbl">8× zoom</text>
+  <rect x="200" y="460" width="128" height="128" fill="#2eb82e"/>
+  <text x="216" y="518" font-family="Segoe UI, sans-serif" font-size="56" font-weight="700" fill="white">57</text>
+  <text x="216" y="576" font-family="Segoe UI, sans-serif" font-size="56" font-weight="700" fill="white">42</text>
+
+  <!-- ===================== OPTION 3: big + small ===================== -->
+  <rect x="20" y="590" width="580" height="220" fill="#ffffff" stroke="#e3e3e3"/>
+  <text x="30" y="620" class="opt">C — Big 5h + tiny 7d badge in corner</text>
+  <text x="30" y="642" class="desc">5h gets primacy (resets in hours, more pressing). 7d shown small.</text>
+  <text x="30" y="660" class="desc">Tiny corner number is nearly unreadable at 16×16 — more like a "presence" marker.</text>
+
+  <text x="30" y="690" class="lbl">16×16 actual</text>
+  <rect x="30" y="700" width="16" height="16" fill="#2eb82e"/>
+  <text x="31" y="715" font-family="Segoe UI, sans-serif" font-size="12" font-weight="700" fill="white">57</text>
+  <text x="40" y="708" font-family="Segoe UI, sans-serif" font-size="5" font-weight="700" fill="white">42</text>
+
+  <text x="200" y="690" class="lbl">8× zoom</text>
+  <rect x="200" y="700" width="128" height="128" fill="#2eb82e"/>
+  <text x="208" y="820" font-family="Segoe UI, sans-serif" font-size="96" font-weight="700" fill="white">57</text>
+  <text x="278" y="754" font-family="Segoe UI, sans-serif" font-size="38" font-weight="700" fill="white">42</text>
+
+  <!-- ===================== OPTION 4: twin bars ===================== -->
+  <rect x="20" y="830" width="580" height="280" fill="#ffffff" stroke="#e3e3e3"/>
+  <text x="30" y="860" class="opt">D — Twin vertical bars + numbers (CodeZeno-ish)</text>
+  <text x="30" y="882" class="desc">Left half = 5h bar (fill height = util%) with "57". Right half = 7d bar with "42".</text>
+  <text x="30" y="900" class="desc">Bar AND number both present. Numbers at 5–6 px tall — small but readable.</text>
+
+  <text x="30" y="930" class="lbl">16×16 actual</text>
+  <!-- left half: 5h -->
+  <rect x="30" y="940" width="8" height="16" fill="#1a3d1a"/>
+  <rect x="30" y="947" width="8" height="9" fill="#2eb82e"/>
+  <text x="31" y="955" font-family="Segoe UI, sans-serif" font-size="6" font-weight="700" fill="white">57</text>
+  <!-- right half: 7d -->
+  <rect x="38" y="940" width="8" height="16" fill="#1a3d1a"/>
+  <rect x="38" y="950" width="8" height="6" fill="#2eb82e"/>
+  <text x="39" y="955" font-family="Segoe UI, sans-serif" font-size="6" font-weight="700" fill="white">42</text>
+
+  <text x="200" y="930" class="lbl">8× zoom</text>
+  <!-- left half: 5h -->
+  <rect x="200" y="940" width="64" height="128" fill="#1a3d1a"/>
+  <rect x="200" y="996" width="64" height="72" fill="#2eb82e"/>
+  <text x="208" y="1062" font-family="Segoe UI, sans-serif" font-size="42" font-weight="700" fill="white">57</text>
+  <!-- right half: 7d -->
+  <rect x="264" y="940" width="64" height="128" fill="#1a3d1a"/>
+  <rect x="264" y="1014" width="64" height="54" fill="#2eb82e"/>
+  <text x="272" y="1062" font-family="Segoe UI, sans-serif" font-size="42" font-weight="700" fill="white">42</text>
+
+  <!-- FOOTNOTE -->
+  <text x="30" y="1170" class="desc" font-style="italic">Note: SVG-rendered text isn't pixel-identical to what GDI will produce.</text>
+  <text x="30" y="1188" class="desc" font-style="italic">Treat these as layout sketches, not pixel-perfect previews. Actual font choice is a later question.</text>
+</svg>
