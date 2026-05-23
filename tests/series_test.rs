@@ -1,5 +1,5 @@
 use chrono::{TimeZone, Utc};
-use claude_usage_tray::dashboard::series::cumulative_share_series_5h;
+use claude_usage_tray::dashboard::series::{cumulative_share_series_5h, cumulative_share_series_weekly};
 use claude_usage_tray::data::parser::Turn;
 use std::path::PathBuf;
 
@@ -69,4 +69,35 @@ fn cumulative_share_5h_no_cap_uses_raw_output() {
     assert_eq!(series.len(), 1);
     // cumulative_share is raw output tokens when cap is None.
     assert_eq!(series[0].cumulative_share, 100.0);
+}
+
+#[test]
+fn cumulative_share_weekly_resets_at_sunday_0700_local() {
+    // 2026-05-17 is a Sunday. CEST (May) = UTC+2. Sun 07:00 CEST = Sun 05:00 UTC.
+    let turns = vec![
+        turn(utc(2026, 5, 17, 4, 0), 999),  // before reset → its own (prior-week) window
+        turn(utc(2026, 5, 17, 6, 0), 100),  // after reset → fresh week → window_idx incremented
+        turn(utc(2026, 5, 23, 12, 0), 200), // still same week
+        turn(utc(2026, 5, 24, 6, 0), 50),   // after next reset → fresh week → window_idx incremented
+    ];
+    let series = cumulative_share_series_weekly(&turns, Some(1000.0));
+    assert_eq!(series.len(), 4);
+
+    // The first turn (pre-reset) starts the series in its own "prior" week.
+    // Subsequent turns in a new week increment window_idx.
+    // We don't test the exact window_idx of the first turn — just that they
+    // increment across week boundaries.
+    assert!(series[1].window_idx > series[0].window_idx);
+    assert_eq!(series[1].window_idx, series[2].window_idx);
+    assert!(series[3].window_idx > series[2].window_idx);
+
+    // Mid-week turn (5/23 12:00 UTC, same week as 5/17 06:00 turn):
+    // cumulative = (100 + 200) / 1000 = 0.3
+    let mid_share = series.iter().find(|w| w.ts == utc(2026, 5, 23, 12, 0)).unwrap();
+    assert!((mid_share.cumulative_share - 0.3).abs() < 0.001);
+
+    // Next-week turn (5/24 06:00 UTC, after Sun 05:00 UTC reset):
+    // cumulative = 50 / 1000 = 0.05 (resets in the new week)
+    let next_share = series.iter().find(|w| w.ts == utc(2026, 5, 24, 6, 0)).unwrap();
+    assert!((next_share.cumulative_share - 0.05).abs() < 0.001);
 }

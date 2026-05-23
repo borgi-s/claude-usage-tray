@@ -1,5 +1,6 @@
 //! Per-turn cumulative-share series for the dashboard charts.
 
+use crate::calibration::anchors::last_weekly_reset;
 use crate::config::FIVE_HOUR_WINDOW_HOURS;
 use crate::data::parser::Turn;
 use chrono::{DateTime, Duration, Utc};
@@ -48,6 +49,40 @@ pub fn cumulative_share_series_5h(turns: &[Turn], cap: Option<f64>) -> Vec<Windo
             window_idx,
         });
         last_ts = Some(t.ts);
+    }
+    out
+}
+
+/// Per-turn cumulative share within each fixed Sunday-07:00-local week.
+pub fn cumulative_share_series_weekly(turns: &[Turn], cap: Option<f64>) -> Vec<WindowedTurn> {
+    let mut out: Vec<WindowedTurn> = Vec::with_capacity(turns.len());
+    let mut current_reset: Option<DateTime<Utc>> = None;
+    let mut window_idx: usize = 0;
+    let mut burn_in_window: u64 = 0;
+
+    for t in turns {
+        let this_reset = last_weekly_reset(t.ts);
+        match current_reset {
+            None => {
+                current_reset = Some(this_reset);
+            }
+            Some(prev) if prev != this_reset => {
+                current_reset = Some(this_reset);
+                burn_in_window = 0;
+                window_idx += 1;
+            }
+            _ => {}
+        }
+        burn_in_window += t.output_tokens;
+        let share = match cap {
+            Some(c) if c > 0.0 => burn_in_window as f64 / c,
+            _ => burn_in_window as f64,
+        };
+        out.push(WindowedTurn {
+            ts: t.ts,
+            cumulative_share: share,
+            window_idx,
+        });
     }
     out
 }
