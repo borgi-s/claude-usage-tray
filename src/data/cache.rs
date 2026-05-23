@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use thiserror::Error;
 
-pub const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct CacheFile {

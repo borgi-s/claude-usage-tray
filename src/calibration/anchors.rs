@@ -13,7 +13,7 @@ pub struct DerivedCaps {
 }
 
 use crate::config;
-use chrono::{Datelike, Duration, TimeZone, Weekday};
+use chrono::{Datelike, Duration, TimeZone};
 use chrono_tz::Tz;
 
 /// Returns the most-recent weekly-reset moment (Sun 07:00 local) at or before
@@ -152,9 +152,6 @@ pub fn derive_caps(log: &[CalibrationSample], turns: &[Turn]) -> DerivedCaps {
         n_anchors_week: n7,
     }
 }
-
-#[allow(dead_code)]
-fn _silence_imports(_: Weekday) {}
 
 #[cfg(test)]
 mod tests {

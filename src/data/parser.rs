@@ -27,7 +27,7 @@ pub struct Turn {
 ///
 /// `is_subagent` is true if any path component is literally "subagents".
 /// `subagent_id` is `Some(hex)` only when the filename is `agent-<hex>.jsonl`.
-pub fn classify_subagent(path: &std::path::Path) -> (bool, Option<String>) {
+pub(crate) fn classify_subagent(path: &std::path::Path) -> (bool, Option<String>) {
     let is_sub = path
         .components()
         .any(|c| c.as_os_str().eq_ignore_ascii_case("subagents"));
@@ -46,7 +46,7 @@ pub fn classify_subagent(path: &std::path::Path) -> (bool, Option<String>) {
 ///
 /// Returns an empty iterator if `root` doesn't exist or can't be read —
 /// callers don't need to special-case the first-run case.
-pub fn walk_jsonl(root: &std::path::Path) -> impl Iterator<Item = PathBuf> {
+pub(crate) fn walk_jsonl(root: &std::path::Path) -> impl Iterator<Item = PathBuf> {
     let mut out: Vec<PathBuf> = Vec::new();
     walk_inner(root, &mut out);
     out.into_iter()
