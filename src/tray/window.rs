@@ -199,7 +199,7 @@ fn drain_and_redraw(hwnd: HWND, state: &mut TrayState) {
     // Drain all queued events, keeping the most recent.
     while let Ok(event) = state.rx.try_recv() {
         match event {
-            PollEvent::Ok(snap) => {
+            PollEvent::Ok { snap, calib: _ } => {
                 state.last_sample = Some((snap, Utc::now()));
                 state.last_status = LastStatus::Ok;
             }

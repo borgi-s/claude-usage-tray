@@ -1,5 +1,7 @@
 use crate::api::credentials::Credentials;
 use crate::api::usage::{FetchError, UsageSnapshot};
+use crate::calibration::anchors::DerivedCaps;
+use crate::calibration::live::LiveUtil;
 use crate::poll::poll_once;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
@@ -13,11 +15,23 @@ use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 /// event has been queued in the mpsc channel.
 pub const WM_APP_POLL: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 1;
 
+/// Calibration outputs attached to a successful poll.
+#[derive(Debug, Clone, Default)]
+pub struct PollCalibration {
+    pub caps: DerivedCaps,
+    pub live: LiveUtil,
+    pub hourly_5h: [f64; 24],
+    pub hourly_week: [f64; 24],
+}
+
 /// One outcome of a single poll attempt. Sent from the polling thread to the
 /// UI thread via mpsc.
 #[derive(Debug)]
 pub enum PollEvent {
-    Ok(UsageSnapshot),
+    Ok {
+        snap: UsageSnapshot,
+        calib: PollCalibration,
+    },
     RateLimited,
     Error(String),
 }
@@ -66,7 +80,10 @@ fn polling_loop(
         let fetch_at = Instant::now();
 
         let event = match poll_once(&creds) {
-            Ok(snap) => PollEvent::Ok(snap),
+            Ok(snap) => PollEvent::Ok {
+                snap,
+                calib: PollCalibration::default(),
+            },
             Err(FetchError::RateLimited) => PollEvent::RateLimited,
             Err(other) => PollEvent::Error(other.to_string()),
         };
