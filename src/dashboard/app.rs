@@ -1,50 +1,65 @@
-//! DashboardApp is the eframe::App implementation. The first frame discovers
-//! its own HWND via find_hwnd_by_title and writes it into the shared slot
-//! so the tray UI thread can raise the window to front on subsequent clicks.
+//! DashboardApp — the eframe::App. A single instance lives for the process.
+//! Close requests hide the window instead of destroying it; the tray re-shows
+//! it via the shared signals.
 
 use crate::dashboard::range::Range;
-use crate::dashboard::{find_hwnd_by_title, SendHwnd, DASHBOARD_WINDOW_TITLE};
+use crate::dashboard::DashboardSignals;
 use crate::shared::SharedSnapshot;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::time::Duration;
 
 pub struct DashboardApp {
     shared: SharedSnapshot,
-    hwnd_slot: Arc<Mutex<Option<SendHwnd>>>,
-    hwnd_found: bool,
+    signals: Arc<DashboardSignals>,
+    visible: bool,
     range_5h: Range,
     range_week: Range,
     range_daily: Range,
 }
 
 impl DashboardApp {
-    pub fn new(shared: SharedSnapshot, hwnd_slot: Arc<Mutex<Option<SendHwnd>>>) -> Self {
+    pub fn new(shared: SharedSnapshot, signals: Arc<DashboardSignals>) -> Self {
         Self {
             shared,
-            hwnd_slot,
-            hwnd_found: false,
+            signals,
+            visible: true,
             range_5h: Range::D5,
             range_week: Range::D14,
             range_daily: Range::D14,
-        }
-    }
-
-    /// Try to find our own HWND. Called every frame until found.
-    fn discover_hwnd_if_needed(&mut self) {
-        if self.hwnd_found {
-            return;
-        }
-        if let Some(hwnd) = find_hwnd_by_title(DASHBOARD_WINDOW_TITLE) {
-            *self.hwnd_slot.lock().unwrap() = Some(SendHwnd(hwnd));
-            self.hwnd_found = true;
-            tracing::debug!("dashboard HWND discovered");
         }
     }
 }
 
 impl eframe::App for DashboardApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.discover_hwnd_if_needed();
+        // 1. App-quit: close the viewport so run_native returns + thread exits.
+        if self.signals.quit_requested.load(Ordering::Relaxed) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        }
 
+        // 2. Tray asked us to show: un-hide + focus.
+        if self.signals.show_requested.swap(false, Ordering::Relaxed) {
+            self.visible = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
+
+        // 3. User clicked the X: cancel the real close, hide instead.
+        if ctx.input(|i| i.viewport().close_requested()) {
+            self.visible = false;
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        }
+
+        // 4. When hidden, skip the heavy chart render; just poll the flags.
+        if !self.visible {
+            ctx.request_repaint_after(Duration::from_millis(150));
+            return;
+        }
+
+        // 5. Visible: render the dashboard.
         egui::CentralPanel::default().show(ctx, |ui| {
             let snap = self.shared.read().unwrap().clone();
             let caps_available = snap.caps.cap_5h.is_some() || snap.caps.cap_week.is_some();
@@ -61,7 +76,7 @@ impl eframe::App for DashboardApp {
                                 egui::RichText::new(
                                     "Uncalibrated — charts show raw output tokens until first ≥95% anchor is observed in the calibration log.",
                                 )
-                                .color(egui::Color32::from_rgb(220, 200, 120))
+                                .color(egui::Color32::from_rgb(220, 200, 120)),
                             );
                         });
                     ui.add_space(8.0);
@@ -81,7 +96,6 @@ impl eframe::App for DashboardApp {
             });
         });
 
-        // Request a repaint at ~30fps so the snapshot view stays fresh.
-        ctx.request_repaint_after(std::time::Duration::from_millis(33));
+        ctx.request_repaint_after(Duration::from_millis(33));
     }
 }

@@ -14,11 +14,11 @@ use windows::Win32::Foundation::{HMODULE, HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
-    DispatchMessageW, GetCursorPos, GetMessageW, GetWindowLongPtrW, PostMessageW, PostQuitMessage,
-    RegisterClassExW, SetForegroundWindow, SetWindowLongPtrW, ShowWindow, TrackPopupMenu,
+    DispatchMessageW, GetCursorPos, GetMessageW, GetWindowLongPtrW, PostQuitMessage,
+    RegisterClassExW, SetForegroundWindow, SetWindowLongPtrW, TrackPopupMenu,
     TranslateMessage, CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, HICON, HMENU, HWND_MESSAGE,
-    MF_STRING, MSG, SW_RESTORE, TPM_LEFTBUTTON, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WINDOW_STYLE,
-    WM_APP, WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY,
+    MF_STRING, MSG, TPM_LEFTBUTTON, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WINDOW_STYLE,
+    WM_APP, WM_COMMAND, WM_DESTROY, WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY,
     WM_RBUTTONUP, WNDCLASSEXW,
 };
 
@@ -166,19 +166,19 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 with_state(hwnd, |state| {
                     state.shutdown.store(true, Ordering::Relaxed);
 
-                    // Tell the dashboard to close, if it's open. The dashboard
-                    // thread's eframe::run_native returns naturally when its
-                    // window is closed, allowing the JoinHandle to complete.
+                    // Tell the dashboard thread (if any) to close its viewport
+                    // so eframe::run_native returns and the thread can join.
                     if let Some(handle) = state.dashboard.lock().unwrap().as_ref() {
-                        if let Some(hwnd_d) = *handle.hwnd.lock().unwrap() {
-                            unsafe {
-                                let _ = PostMessageW(hwnd_d.0, WM_CLOSE, WPARAM(0), LPARAM(0));
-                            }
-                        }
+                        handle
+                            .signals
+                            .quit_requested
+                            .store(true, std::sync::atomic::Ordering::Relaxed);
                     }
                 });
                 icon::delete(hwnd);
-                unsafe { let _ = DestroyWindow(hwnd); }
+                unsafe {
+                    let _ = DestroyWindow(hwnd);
+                }
             }
             LRESULT(0)
         }
@@ -384,18 +384,14 @@ fn on_left_click(state: &mut TrayState) {
     let mut guard = state.dashboard.lock().unwrap();
     match guard.as_ref() {
         Some(handle) if !handle.join.is_finished() => {
-            // Dashboard alive — try to raise. If HWND not yet known, no-op.
-            if let Some(hwnd) = *handle.hwnd.lock().unwrap() {
-                unsafe {
-                    let _ = SetForegroundWindow(hwnd.0);
-                    let _ = ShowWindow(hwnd.0, SW_RESTORE);
-                }
-            } else {
-                tracing::debug!("LMB while dashboard HWND not yet populated");
-            }
+            // Dashboard thread alive — ask it to un-hide + focus.
+            handle
+                .signals
+                .show_requested
+                .store(true, std::sync::atomic::Ordering::Relaxed);
         }
         _ => {
-            // No window, or thread has finished. Spawn fresh.
+            // No dashboard yet (first click) — spawn the single persistent thread.
             tracing::info!("spawning dashboard window");
             *guard = Some(crate::dashboard::launch(state.shared.clone()));
         }
