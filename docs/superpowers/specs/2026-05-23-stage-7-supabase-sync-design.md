@@ -140,9 +140,9 @@ Widen the in-memory `DerivedCaps` (4 fields) into a 13-field serde struct matchi
 | `sampled_at` | `last_sample` timestamp | ISO 8601 |
 | `sample_util_5h`, `sample_util_7d` | `UsageSnapshot` `utilization` (0–1) | drives the viewer's live panel |
 | `resets_5h_iso`, `resets_7d_iso` | `UsageSnapshot` `resets_at` | ISO 8601 |
-| `subscription_type` | `Credentials` | (known to misreport Max as `pro`; carried as-is) |
-| `sample_burn_5h`, `sample_burn_7d` | computed cost-weighted window sums from turns | |
-| `max5x_5h`, `max5x_weekly`, `pro_5h`, `pro_weekly`, `rate_limit_tier` | **null** | Rust yields a single effective cap, not per-plan caps; the viewer guards on these (`if prev.max5x_5h`), so only the optional cap-caption line is hidden. Graceful degradation. |
+| `subscription_type`, `rate_limit_tier` | `Credentials` | `subscription_type` known to misreport Max as `pro`; carried as-is |
+| `sample_burn_5h`, `sample_burn_7d` | **null** | Not read by the viewer's live panel; computing cost-weighted window burns is deferred with the other calibration-history fields. |
+| `max5x_5h`, `max5x_weekly`, `pro_5h`, `pro_weekly` | **null** | Rust yields a single effective cap, not per-plan caps; the viewer guards on these (`if prev.max5x_5h`), so only the optional cap-caption line is hidden. Graceful degradation. |
 
 ## Upload
 
@@ -157,7 +157,7 @@ Widen the in-memory `DerivedCaps` (4 fields) into a 13-field serde struct matchi
 
 ## Integration
 
-The sync pass is called from the existing `--watch` poll loop after a successful poll + calibration tick. All three files upload each tick (parity with the Python agent's behavior).
+The sync pass is called from the **tray polling loop** (`src/tray/poller.rs::polling_loop`), which is the only loop that assembles a full `AppSnapshot` (turns + caps + last_sample) — the `--watch` text mode does not build those. The hook runs each tick right after the `AppSnapshot` is written to the shared snapshot. All three files upload each tick (parity with the Python agent's behavior). The `Syncer` is constructed once before the loop (`None` if unconfigured), so `.env` is read a single time, not per tick.
 
 ## Data flow
 
