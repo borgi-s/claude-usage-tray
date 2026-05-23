@@ -45,11 +45,20 @@ use crate::calibration::anchors::{five_hour_burn_at, weekly_burn_at};
 
 /// Compute all four KPIs from the turns + caps. Called once per poll.
 pub fn compute_kpis(turns: &[Turn], caps: &DerivedCaps) -> DashboardKpis {
+    let total_cw: f64 = turns.iter().map(cost_weighted).sum();
+    let daily_avg = if turns.len() < 2 {
+        total_cw  // sub-day data: report total as daily avg
+    } else {
+        let first = turns.first().unwrap().ts;
+        let last = turns.last().unwrap().ts;
+        let span_days = ((last - first).num_seconds() as f64 / 86_400.0).max(1.0);
+        total_cw / span_days
+    };
     DashboardKpis {
         peak_5h_share: peak_5h_share(turns, caps),
         peak_week_share: peak_week_share(turns, caps),
-        total_cost_weighted: 0.0,        // filled in by next task
-        daily_avg_cost_weighted: 0.0,    // filled in by next task
+        total_cost_weighted: total_cw,
+        daily_avg_cost_weighted: daily_avg,
     }
 }
 
@@ -135,5 +144,40 @@ mod tests {
         let k = compute_kpis(&turns, &caps);
         assert_eq!(k.peak_5h_share, 0.0);
         assert_eq!(k.peak_week_share, 0.0);
+    }
+
+    #[test]
+    fn compute_kpis_total_and_daily_avg_cost_weighted() {
+        // 3 turns on 2026-05-24, 1 turn on 2026-05-25 → span 1 day.
+        // Each turn: 1 input, 1 cache_create, 1 cache_read, 1 output.
+        // cost_weighted per turn = 1*1 + 1*1.25 + 1*0.1 + 1*5 = 7.35.
+        let turns_raw = vec![
+            turn_at(utc(2026, 5, 24, 10, 0), 1),
+            turn_at(utc(2026, 5, 24, 11, 0), 1),
+            turn_at(utc(2026, 5, 24, 12, 0), 1),
+            turn_at(utc(2026, 5, 25, 10, 0), 1),
+        ];
+        // Patch input/cache_create/cache_read = 1 for each.
+        let turns: Vec<Turn> = turns_raw.into_iter().map(|mut t| {
+            t.input_tokens = 1;
+            t.cache_creation_input_tokens = 1;
+            t.cache_read_input_tokens = 1;
+            t
+        }).collect();
+        let caps = DerivedCaps::default();
+        let k = compute_kpis(&turns, &caps);
+        // total = 4 * 7.35 = 29.4
+        assert!((k.total_cost_weighted - 29.4).abs() < 0.01);
+        // first=24 10:00, last=25 10:00 → span = exactly 1 day.
+        // daily_avg = total / span_days = 29.4 / 1.0 = 29.4
+        assert!((k.daily_avg_cost_weighted - 29.4).abs() < 0.01);
+    }
+
+    #[test]
+    fn compute_kpis_empty_turns_returns_zeros() {
+        let k = compute_kpis(&[], &DerivedCaps::default());
+        assert_eq!(k.peak_5h_share, 0.0);
+        assert_eq!(k.total_cost_weighted, 0.0);
+        assert_eq!(k.daily_avg_cost_weighted, 0.0);
     }
 }
