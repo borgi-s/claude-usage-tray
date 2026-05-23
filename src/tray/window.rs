@@ -15,10 +15,11 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
     DispatchMessageW, GetCursorPos, GetMessageW, GetWindowLongPtrW, PostQuitMessage,
-    RegisterClassExW, SetForegroundWindow, SetWindowLongPtrW, TrackPopupMenu, TranslateMessage,
-    CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, HICON, HMENU, HWND_MESSAGE, MF_STRING, MSG,
-    TPM_LEFTBUTTON, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_COMMAND, WM_DESTROY,
-    WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY, WM_RBUTTONUP, WNDCLASSEXW,
+    RegisterClassExW, SetForegroundWindow, SetWindowLongPtrW, ShowWindow, TrackPopupMenu,
+    TranslateMessage, CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, HICON, HMENU, HWND_MESSAGE,
+    MF_STRING, MSG, SW_RESTORE, TPM_LEFTBUTTON, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WINDOW_STYLE,
+    WM_APP, WM_COMMAND, WM_DESTROY, WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY, WM_RBUTTONUP,
+    WNDCLASSEXW,
 };
 
 /// Custom message: shell sends this when the user interacts with the tray icon.
@@ -46,6 +47,8 @@ pub struct TrayState {
     pub last_local_util: Option<LiveUtil>,
     pub last_hourly_5h: Option<[f64; 24]>,
     pub last_hourly_week: Option<[f64; 24]>,
+    pub shared: crate::shared::SharedSnapshot,
+    pub dashboard: std::sync::Arc<std::sync::Mutex<Option<crate::dashboard::DashboardHandle>>>,
 }
 
 impl Drop for TrayState {
@@ -370,9 +373,27 @@ fn show_context_menu(hwnd: HWND) {
     }
 }
 
-/// Handler for left-click on the tray icon. Filled in by Task 12.
-fn on_left_click(_state: &mut TrayState) {
-    tracing::info!("LMB on tray icon (no-op until Task 12)");
+/// Handler for left-click on the tray icon.
+fn on_left_click(state: &mut TrayState) {
+    let mut guard = state.dashboard.lock().unwrap();
+    match guard.as_ref() {
+        Some(handle) if !handle.join.is_finished() => {
+            // Dashboard alive — try to raise. If HWND not yet known, no-op.
+            if let Some(hwnd) = *handle.hwnd.lock().unwrap() {
+                unsafe {
+                    let _ = SetForegroundWindow(hwnd.0);
+                    let _ = ShowWindow(hwnd.0, SW_RESTORE);
+                }
+            } else {
+                tracing::debug!("LMB while dashboard HWND not yet populated");
+            }
+        }
+        _ => {
+            // No window, or thread has finished. Spawn fresh.
+            tracing::info!("spawning dashboard window");
+            *guard = Some(crate::dashboard::launch(state.shared.clone()));
+        }
+    }
 }
 
 /// Resolve the process's HMODULE for use by RegisterClassExW / CreateWindowExW / CreateIcon.

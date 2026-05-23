@@ -21,6 +21,8 @@ pub fn run(interval_secs: u64) -> Result<()> {
     let creds = load_from_default_path()?;
     use crate::shared::new_shared_snapshot;
     let shared = new_shared_snapshot();
+    let dashboard: std::sync::Arc<std::sync::Mutex<Option<crate::dashboard::DashboardHandle>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(None));
     let hinst = window::current_hinstance()?;
     let renderer = icon::IconRenderer::new();
 
@@ -38,6 +40,8 @@ pub fn run(interval_secs: u64) -> Result<()> {
         last_local_util: None,
         last_hourly_5h: None,
         last_hourly_week: None,
+        shared: shared.clone(),
+        dashboard: dashboard.clone(),
     });
 
     let hwnd = window::create(hinst, state)?;

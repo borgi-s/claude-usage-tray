@@ -22,6 +22,9 @@ pub struct DashboardHandle {
     pub join: JoinHandle<()>,
 }
 
+use crate::dashboard::app::DashboardApp;
+use crate::shared::SharedSnapshot;
+
 use windows::Win32::Foundation::{BOOL, LPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowTextW, IsWindowVisible};
 
@@ -73,4 +76,40 @@ extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
         return BOOL(0); // stop
     }
     BOOL(1) // continue
+}
+
+/// Spawn the dashboard window on a fresh thread. Returns immediately;
+/// the HWND inside the returned handle is populated asynchronously by the
+/// dashboard thread once eframe builds the window.
+pub fn launch(shared: SharedSnapshot) -> DashboardHandle {
+    let hwnd_slot: Arc<Mutex<Option<SendHwnd>>> = Arc::new(Mutex::new(None));
+    let hwnd_slot_for_thread = hwnd_slot.clone();
+
+    let join = std::thread::spawn(move || {
+        let app = DashboardApp::new(shared, hwnd_slot_for_thread);
+        let native_options = eframe::NativeOptions {
+            viewport: egui::ViewportBuilder::default()
+                .with_inner_size([1100.0, 720.0])
+                .with_min_inner_size([700.0, 480.0])
+                .with_title(DASHBOARD_WINDOW_TITLE),
+            // Opt into non-main-thread EventLoop creation. Without this,
+            // winit panics on Windows when constructed off the main thread.
+            event_loop_builder: Some(Box::new(|builder| {
+                use winit::platform::windows::EventLoopBuilderExtWindows;
+                builder.with_any_thread(true);
+            })),
+            ..Default::default()
+        };
+
+        if let Err(e) = eframe::run_native(
+            "claude-usage-tray-dashboard",
+            native_options,
+            Box::new(|_cc| Ok(Box::new(app))),
+        ) {
+            tracing::warn!(error = ?e, "eframe::run_native failed");
+        }
+        // run_native returned → window closed → thread is about to exit.
+    });
+
+    DashboardHandle { hwnd: hwnd_slot, join }
 }
