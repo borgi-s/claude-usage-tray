@@ -149,3 +149,68 @@ fn base_notify_data(
     data.szTip[n] = 0;
     data
 }
+
+/// Map a util value in [0.0, ∞) to an RGB color using the anchored gradient:
+///   0.00 → green (#2eb82e), 0.60 → yellow (#e6b800), 0.85+ → red (#cc2929).
+/// Values below 0 clamp to green; values at/above 0.85 clamp to red.
+/// Linear RGB interpolation between anchors.
+#[allow(dead_code)]
+pub(crate) fn anchored_gradient(util: f64) -> (u8, u8, u8) {
+    let u = util.clamp(0.0, 1.0);
+    let (start, end, t) = if u < 0.60 {
+        ((46u8, 184u8, 46u8), (230u8, 184u8, 0u8), u / 0.60)
+    } else if u < 0.85 {
+        ((230u8, 184u8, 0u8), (204u8, 41u8, 41u8), (u - 0.60) / 0.25)
+    } else {
+        return (204, 41, 41);
+    };
+    let lerp = |a: u8, b: u8, t: f64| -> u8 {
+        (a as f64 + t * (b as f64 - a as f64)).round() as u8
+    };
+    (
+        lerp(start.0, end.0, t),
+        lerp(start.1, end.1, t),
+        lerp(start.2, end.2, t),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn anchored_gradient_anchors_match() {
+        assert_eq!(anchored_gradient(0.00), (46, 184, 46));   // green
+        assert_eq!(anchored_gradient(0.60), (230, 184, 0));   // yellow
+        assert_eq!(anchored_gradient(0.85), (204, 41, 41));   // red
+    }
+
+    #[test]
+    fn anchored_gradient_clamps_above_85_to_red() {
+        assert_eq!(anchored_gradient(0.90), (204, 41, 41));
+        assert_eq!(anchored_gradient(1.00), (204, 41, 41));
+    }
+
+    #[test]
+    fn anchored_gradient_clamps_below_zero_to_green() {
+        assert_eq!(anchored_gradient(-0.50), (46, 184, 46));
+    }
+
+    #[test]
+    fn anchored_gradient_midpoint_of_green_to_yellow() {
+        // 0.30 = halfway between 0.00 (green) and 0.60 (yellow).
+        // R: 46 + 0.5*(230-46) = 138
+        // G: 184 + 0.5*(184-184) = 184
+        // B: 46 + 0.5*(0-46) = 23
+        assert_eq!(anchored_gradient(0.30), (138, 184, 23));
+    }
+
+    #[test]
+    fn anchored_gradient_midpoint_of_yellow_to_red() {
+        // 0.725 = halfway between 0.60 (yellow) and 0.85 (red).
+        // R: 230 + 0.5*(204-230) = 217
+        // G: 184 + 0.5*(41-184) = 113 (rounded from 112.5)
+        // B: 0 + 0.5*(41-0) = 21 (rounded from 20.5)
+        assert_eq!(anchored_gradient(0.725), (217, 113, 21));
+    }
+}
