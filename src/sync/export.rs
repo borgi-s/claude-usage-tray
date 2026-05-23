@@ -35,6 +35,7 @@ pub fn cache_parquet(turns: &[Turn]) -> Result<Vec<u8>> {
         Arc::new(StringArray::from_iter_values(turns.iter().map(|t| t.project_cwd.clone()))),
         Arc::new(StringArray::from_iter_values(turns.iter().map(|t| t.model.clone()))),
         Arc::new(StringArray::from_iter_values(turns.iter().map(|t| t.version.clone()))),
+        // Token counts are always small (<10^9); i64::MAX is ~9.2*10^18, so the cast never wraps.
         Arc::new(Int64Array::from_iter_values(turns.iter().map(|t| t.input_tokens as i64))),
         Arc::new(Int64Array::from_iter_values(turns.iter().map(|t| t.output_tokens as i64))),
         Arc::new(Int64Array::from_iter_values(turns.iter().map(|t| t.cache_creation_input_tokens as i64))),
@@ -123,6 +124,18 @@ mod tests {
         assert_eq!(out.value(0), 400);
         let sess = batch.column(1).as_any().downcast_ref::<StringArray>().unwrap();
         assert_eq!(sess.value(0), "sess-1");
+    }
+
+    #[test]
+    fn cache_parquet_preserves_some_subagent_id() {
+        use arrow::array::{Array, StringArray};
+        let mut t = sample_turn();
+        t.subagent_id = Some("agent-abc".into());
+        let bytes = cache_parquet(&[t]).unwrap();
+        let batch = read_back(&bytes);
+        let col = batch.column(2).as_any().downcast_ref::<StringArray>().unwrap();
+        assert_eq!(col.value(0), "agent-abc");
+        assert!(!col.is_null(0));
     }
 
     #[test]
