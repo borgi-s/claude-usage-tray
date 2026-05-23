@@ -71,3 +71,34 @@ pub fn append_to_default_path(snap: &UsageSnapshot, creds: &Credentials) -> Resu
     let sample = sample_from(snap, creds);
     append(&path, &sample)
 }
+
+/// Read every record from a calibration log file. Bad lines are silently
+/// skipped (matches the append-side tolerance). Returns empty Vec if the
+/// file doesn't exist.
+pub fn read_all(path: &Path) -> Result<Vec<CalibrationSample>, LogError> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let content = std::fs::read_to_string(path)?;
+    let mut out = Vec::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<CalibrationSample>(line) {
+            Ok(s) => out.push(s),
+            Err(_) => {
+                tracing::trace!(line = %line, "skipping malformed calibration log line");
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Convenience wrapper: read from the default path.
+pub fn read_all_default() -> Result<Vec<CalibrationSample>, LogError> {
+    let path = paths::calibration_log_path()
+        .map_err(|e| LogError::Io(std::io::Error::other(e.to_string())))?;
+    read_all(&path)
+}
