@@ -23,3 +23,13 @@ pub fn ensure_parent_dir(path: &std::path::Path) -> Result<()> {
     }
     Ok(())
 }
+
+/// Returns ~/.claude-usage-tray/cache.bincode. Does NOT create the file.
+pub fn cache_path() -> Result<PathBuf> {
+    Ok(app_dir()?.join("cache.bincode"))
+}
+
+/// Returns ~/.claude-usage-tray/cache_manifest.json. Does NOT create the file.
+pub fn cache_manifest_path() -> Result<PathBuf> {
+    Ok(app_dir()?.join("cache_manifest.json"))
+}
