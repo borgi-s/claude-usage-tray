@@ -18,7 +18,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     RegisterClassExW, SetForegroundWindow, SetWindowLongPtrW, TrackPopupMenu, TranslateMessage,
     CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, HICON, HMENU, HWND_MESSAGE, MF_STRING, MSG,
     TPM_LEFTBUTTON, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_COMMAND, WM_DESTROY,
-    WM_NCCREATE, WM_NCDESTROY, WM_RBUTTONUP, WNDCLASSEXW,
+    WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY, WM_RBUTTONUP, WNDCLASSEXW,
 };
 
 /// Custom message: shell sends this when the user interacts with the tray icon.
@@ -46,6 +46,8 @@ pub struct TrayState {
     pub last_local_util: Option<LiveUtil>,
     pub last_hourly_5h: Option<[f64; 24]>,
     pub last_hourly_week: Option<[f64; 24]>,
+    pub shared: crate::shared::SharedSnapshot,
+    pub dashboard: std::sync::Arc<std::sync::Mutex<Option<crate::dashboard::DashboardHandle>>>,
 }
 
 impl Drop for TrayState {
@@ -153,18 +155,24 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             // lparam.0 carries the underlying mouse event id.
             if lparam.0 as u32 == WM_RBUTTONUP {
                 show_context_menu(hwnd);
+            } else if lparam.0 as u32 == WM_LBUTTONUP {
+                with_state(hwnd, on_left_click);
             }
             LRESULT(0)
         }
         WM_COMMAND => {
-            // wparam low word = command ID.
             if (wparam.0 & 0xFFFF) == IDM_QUIT {
                 with_state(hwnd, |state| {
                     state.shutdown.store(true, Ordering::Relaxed);
+
+                    // Tell the dashboard thread (if any) to close its viewport
+                    // so eframe::run_native returns and the thread can join.
+                    // request_quit also wakes the (possibly hidden) event loop.
+                    if let Some(handle) = state.dashboard.lock().unwrap().as_ref() {
+                        handle.signals.request_quit();
+                    }
                 });
                 icon::delete(hwnd);
-                // DestroyWindow triggers WM_DESTROY (PostQuitMessage) and
-                // WM_NCDESTROY (Box::from_raw reclaims TrayState).
                 unsafe {
                     let _ = DestroyWindow(hwnd);
                 }
@@ -365,6 +373,23 @@ fn show_context_menu(hwnd: HWND) {
             None,
         );
         let _ = DestroyMenu(hmenu);
+    }
+}
+
+/// Handler for left-click on the tray icon.
+fn on_left_click(state: &mut TrayState) {
+    let mut guard = state.dashboard.lock().unwrap();
+    match guard.as_ref() {
+        Some(handle) if !handle.join.is_finished() => {
+            // Dashboard thread alive — ask it to un-hide + focus (and wake the
+            // event loop, which may be idle while the window is hidden).
+            handle.signals.request_show();
+        }
+        _ => {
+            // No dashboard yet (first click) — spawn the single persistent thread.
+            tracing::info!("spawning dashboard window");
+            *guard = Some(crate::dashboard::launch(state.shared.clone()));
+        }
     }
 }
 
