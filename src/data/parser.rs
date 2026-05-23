@@ -67,6 +67,90 @@ fn walk_inner(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// Yields one `Turn` per JSONL line that contains usage telemetry or a
+/// rate-limit error. Bad JSON lines, empty lines, and rows without a
+/// `message.usage` field (and not rate-limit errors) are silently skipped.
+pub fn iter_rows(path: &std::path::Path) -> impl Iterator<Item = Turn> {
+    let (is_sub, sub_id) = classify_subagent(path);
+    let path_owned = path.to_path_buf();
+    let content = std::fs::read_to_string(path).unwrap_or_default();
+    let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+
+    lines.into_iter().filter_map(move |raw_line| {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            return None;
+        }
+        let obj: serde_json::Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(_) => return None,
+        };
+        let obj = obj.as_object()?;
+
+        let rate_limited = is_rate_limit_error(obj);
+        let usage = obj.get("message").and_then(|m| m.get("usage"));
+        if usage.is_none() && !rate_limited {
+            return None;
+        }
+
+        let ts_raw = obj.get("timestamp").and_then(|v| v.as_str())?;
+        let ts = chrono::DateTime::parse_from_rfc3339(ts_raw)
+            .ok()?
+            .with_timezone(&chrono::Utc);
+
+        let session_id = obj
+            .get("sessionId")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let project_cwd = obj
+            .get("cwd")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let version = obj
+            .get("version")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let model = obj
+            .get("message")
+            .and_then(|m| m.get("model"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let usage_obj = usage.and_then(|u| u.as_object());
+        let get_u64 = |key: &str| -> u64 {
+            usage_obj
+                .and_then(|u| u.get(key))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+        };
+
+        Some(Turn {
+            ts,
+            session_id,
+            subagent_id: sub_id.clone(),
+            is_subagent: is_sub,
+            project_cwd,
+            model,
+            version,
+            input_tokens: get_u64("input_tokens"),
+            output_tokens: get_u64("output_tokens"),
+            cache_creation_input_tokens: get_u64("cache_creation_input_tokens"),
+            cache_read_input_tokens: get_u64("cache_read_input_tokens"),
+            source_file: path_owned.clone(),
+            is_rate_limit_error: rate_limited,
+        })
+    })
+}
+
+/// Stub — full implementation arrives in the next task.
+fn is_rate_limit_error(_obj: &serde_json::Map<String, serde_json::Value>) -> bool {
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
