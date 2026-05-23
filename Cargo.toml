@@ -35,6 +35,9 @@ windows = { version = "0.58", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+arrow = "58.3.0"
+parquet = "58.3.0"
+dotenvy = "0.15.7"
 
 [dev-dependencies]
 tempfile = "3"
