@@ -10,7 +10,10 @@ use egui::{Color32, Stroke, Ui};
 use egui_plot::{HLine, Line, LineStyle, Plot, PlotPoints, Polygon};
 
 const COLOR_LINE: Color32 = Color32::from_rgb(79, 140, 255);
-const COLOR_BAND: Color32 = Color32::from_rgba_premultiplied(136, 136, 136, 22);
+// Soft blue-grey band at ~16% opacity.
+// from_rgba_premultiplied requires RGB already multiplied by alpha/255:
+//   120 * 40/255 ≈ 19, 120 * 40/255 ≈ 19, 140 * 40/255 ≈ 22
+const COLOR_BAND: Color32 = Color32::from_rgba_premultiplied(19, 19, 22, 40);
 const COLOR_CAP: Color32 = Color32::from_rgb(120, 120, 120);
 const COLOR_HOURLY: Color32 = Color32::from_rgba_premultiplied(180, 180, 180, 80);
 
@@ -55,11 +58,16 @@ pub fn render(ui: &mut Ui, snap: &AppSnapshot, range: &mut Range) {
         segments.last_mut().unwrap().push([x(w.ts), pct]);
     }
 
+    let y_label = if cap_5h.is_some() { "% of cap" } else { "output tokens" };
+
     Plot::new("chart_5h")
         .height(280.0)
         .show_x(true)
         .show_y(true)
-        .y_axis_label("% of cap")
+        .y_axis_label(y_label)
+        .x_axis_formatter(|mark: egui_plot::GridMark, _range: &std::ops::RangeInclusive<f64>| {
+            crate::dashboard::axis::format_x_tick(mark.value)
+        })
         .show(ui, |plot_ui| {
             // Calendar bands.
             for (s, e, _kind) in calendar_bands(x_start, x_end) {

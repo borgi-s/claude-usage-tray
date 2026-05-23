@@ -32,7 +32,8 @@ pub fn render(ui: &mut Ui, snap: &AppSnapshot, range: &mut Range) {
     let tz: Tz = crate::config::LOCAL_TZ.parse().expect("LOCAL_TZ");
     let aggregates = daily_aggregates(&snap.turns);
 
-    let bars: Vec<Bar> = aggregates.iter()
+    let bars: Vec<Bar> = aggregates
+        .iter()
         .filter_map(|(date, val)| {
             let date_naive = date.and_time(NaiveTime::from_hms_opt(12, 0, 0).unwrap());
             let local_dt = tz.from_local_datetime(&date_naive).single()?;
@@ -50,6 +51,9 @@ pub fn render(ui: &mut Ui, snap: &AppSnapshot, range: &mut Range) {
         .show_x(true)
         .show_y(true)
         .y_axis_label("cost-weighted")
+        .x_axis_formatter(|mark: egui_plot::GridMark, _range: &std::ops::RangeInclusive<f64>| {
+            crate::dashboard::axis::format_x_tick(mark.value)
+        })
         .show(ui, |plot_ui| {
             plot_ui.bar_chart(BarChart::new(bars).color(COLOR_BAR));
         });

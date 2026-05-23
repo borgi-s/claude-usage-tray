@@ -1,6 +1,7 @@
 //! Native egui dashboard window.
 
 pub mod app;
+pub mod axis;
 pub mod bands;
 pub mod chart_5h;
 pub mod chart_daily;
