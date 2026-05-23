@@ -144,6 +144,20 @@ Each stage is a tagged GitHub release, shippable on its own. Beginner-pace estim
 - Each is its own mini-project — ship one per week.
 - **Deliverable:** Full Streamlit replacement on Windows. Tag `v1.0.0`.
 
+## Possible post-Stage 6 extension: taskbar-docked widget
+
+Inspired by [CodeZeno/Claude-Code-Usage-Monitor](https://github.com/CodeZeno/Claude-Code-Usage-Monitor): a small native widget that lives directly in the Windows taskbar (next to the clock area, draggable along the taskbar) showing 5h / 7d bars + reset countdowns. Distinct from — and in addition to — the tray icon and the Stage 6 popup dashboard.
+
+**Status:** deferred, not committed. Re-evaluate after Stage 6 ships, once there is fluency in egui + Win32 windowing in this codebase.
+
+**Trigger to re-open:** if, after using the Stage 6 popup dashboard for real work, the at-a-glance reading is insufficient (e.g. user finds they're opening the dashboard constantly just to check the bars). If the tray %-icon plus on-click popup feels fine, don't build this.
+
+**Technical notes for whoever picks this up later:**
+- The official "put your UI in the taskbar" API (DeskBand) was removed in Windows 11. Not an option.
+- Likely implementation: a borderless, always-on-top, `WS_EX_TOOLWINDOW` egui window positioned over the taskbar area. The "drag the divider" UX is faked by repositioning the window.
+- Needs to handle: taskbar position (top/bottom/left/right), DPI scaling, taskbar auto-hide, multi-monitor setups, `WM_DISPLAYCHANGE` re-positioning when displays change.
+- Reuses the Stage 6 egui rendering code — only the window chrome, positioning, and lifecycle differ.
+
 ## Data flow
 
 ```
