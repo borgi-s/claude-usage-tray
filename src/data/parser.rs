@@ -146,9 +146,42 @@ pub fn iter_rows(path: &std::path::Path) -> impl Iterator<Item = Turn> {
     })
 }
 
-/// Stub — full implementation arrives in the next task.
-fn is_rate_limit_error(_obj: &serde_json::Map<String, serde_json::Value>) -> bool {
+/// Returns true if `obj` represents an API error caused by rate limiting.
+fn is_rate_limit_error(obj: &serde_json::Map<String, serde_json::Value>) -> bool {
+    // Outer "type" must be an error variant.
+    let outer_type = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    if outer_type != "api-error" && outer_type != "error" {
+        return false;
+    }
+    // Check obj.error directly.
+    if let Some(err) = obj.get("error").and_then(|v| v.as_object()) {
+        if error_indicates_rate_limit(err) {
+            return true;
+        }
+    }
+    // Check obj.message.error (some shapes nest it inside message).
+    if let Some(err) = obj
+        .get("message")
+        .and_then(|m| m.get("error"))
+        .and_then(|v| v.as_object())
+    {
+        if error_indicates_rate_limit(err) {
+            return true;
+        }
+    }
     false
+}
+
+fn error_indicates_rate_limit(err: &serde_json::Map<String, serde_json::Value>) -> bool {
+    if err.get("status").and_then(|v| v.as_u64()) == Some(429) {
+        return true;
+    }
+    let t = err
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_lowercase();
+    t.contains("rate") || t.contains("limit")
 }
 
 #[cfg(test)]

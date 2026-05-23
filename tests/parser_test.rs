@@ -29,3 +29,17 @@ fn iter_rows_yields_two_usage_rows_from_fixture() {
     let r1 = &usage_rows[1];
     assert_eq!(r1.output_tokens, 3000);
 }
+
+#[test]
+fn iter_rows_yields_rate_limit_error_row() {
+    let p = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("sample_session.jsonl");
+    let rows: Vec<_> = iter_rows(&p).collect();
+
+    let rl_rows: Vec<_> = rows.iter().filter(|r| r.is_rate_limit_error).collect();
+    assert_eq!(rl_rows.len(), 1);
+    assert_eq!(rl_rows[0].session_id, "sess-abc");
+    assert_eq!(rl_rows[0].input_tokens, 0); // no usage on error rows
+}
