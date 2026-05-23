@@ -3,6 +3,7 @@
 pub mod app;
 pub mod bands;
 pub mod chart_5h;
+pub mod chart_weekly;
 pub mod kpi;
 pub mod range;
 pub mod series;
