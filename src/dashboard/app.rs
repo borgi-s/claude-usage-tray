@@ -9,11 +9,18 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
+/// Off-screen parking spot. The window is moved here instead of hidden, because
+/// hiding the root viewport (`Visible(false)`) parks eframe's event loop — it
+/// then ignores repaint timers and cross-thread wakes, so we could never bring
+/// it back. An off-screen-but-visible window keeps the loop ticking.
+const OFFSCREEN: egui::Pos2 = egui::pos2(-32000.0, -32000.0);
+
 pub struct DashboardApp {
     shared: SharedSnapshot,
     signals: Arc<DashboardSignals>,
     visible: bool,
     ctx_published: bool,
+    saved_pos: Option<egui::Pos2>,
     range_5h: Range,
     range_week: Range,
     range_daily: Range,
@@ -26,6 +33,7 @@ impl DashboardApp {
             signals,
             visible: true,
             ctx_published: false,
+            saved_pos: None,
             range_5h: Range::D5,
             range_week: Range::D14,
             range_daily: Range::D14,
@@ -49,29 +57,32 @@ impl eframe::App for DashboardApp {
             return;
         }
 
-        // 2. Tray asked us to show: un-hide + focus.
+        // 2. Tray asked us to show: move back on-screen + focus.
         if self.signals.show_requested.swap(false, Ordering::Relaxed) {
-            tracing::debug!("dashboard: show_requested seen, un-hiding");
+            tracing::debug!("dashboard: show_requested seen, restoring");
             self.visible = true;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            let pos = self.saved_pos.unwrap_or(egui::pos2(200.0, 100.0));
+            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos));
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
 
-        // 3. User clicked the X: cancel the real close, hide instead. Only act
-        //    when currently visible — a stale close_requested on a freshly-shown
-        //    window must not immediately re-hide it.
+        // 3. User clicked the X: cancel the real close, park the window
+        //    off-screen instead. Only act when currently visible — a stale
+        //    close_requested on a freshly-restored window must not re-park it.
         if self.visible && ctx.input(|i| i.viewport().close_requested()) {
-            tracing::debug!("dashboard: close intercepted, hiding");
+            tracing::debug!("dashboard: close intercepted, parking off-screen");
+            self.saved_pos = ctx.input(|i| i.viewport().outer_rect.map(|r| r.min));
             self.visible = false;
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(OFFSCREEN));
         }
 
-        // 4. When hidden, skip the heavy chart render; just poll the flags.
-        //    request_repaint_after keeps us ticking even if the cross-thread
-        //    wake doesn't arrive, as a belt-and-braces fallback.
+        // 4. When parked off-screen, skip the heavy chart render; just keep the
+        //    loop ticking so we notice show/quit. The window is still "visible"
+        //    to winit, so the timer keeps firing (unlike Visible(false), which
+        //    parks the loop).
         if !self.visible {
-            ctx.request_repaint_after(Duration::from_millis(200));
+            ctx.request_repaint_after(Duration::from_millis(150));
             return;
         }
 
