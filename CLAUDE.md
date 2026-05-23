@@ -19,6 +19,7 @@ User is a **Rust beginner** (zero prior Rust experience as of 2026-05-22). Expla
 - **Stage 3 spec:** `docs/superpowers/specs/2026-05-22-stage-3-tray-design.md` — Win32 tray icon design details.
 - **Stage 3 plan:** `docs/superpowers/plans/2026-05-22-stage-3-tray.md` — task plan. **Shipped 2026-05-22 (tag `v0.3.0`).**
 - **Stage 4 spec:** `docs/superpowers/specs/2026-05-23-stage-4-gdi-icon-design.md` — GDI+ rendered percentage icon design details.
+- **Stage 4 plan:** `docs/superpowers/plans/2026-05-23-stage-4-gdi-icon.md` — bite-sized task plan, ready to execute.
 
 Stages 5-8 will get their own implementation plans when each is ready to start.
 
