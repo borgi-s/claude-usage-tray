@@ -2,7 +2,11 @@ use crate::api::credentials::Credentials;
 use crate::api::usage::{FetchError, UsageSnapshot};
 use crate::calibration::anchors::DerivedCaps;
 use crate::calibration::live::LiveUtil;
+use crate::data::parser::Turn;
 use crate::poll::poll_once;
+use crate::render::LastStatus;
+use crate::shared::SharedSnapshot;
+use crate::shared::snapshot::{AppSnapshot, compute_kpis};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
@@ -63,9 +67,10 @@ pub fn spawn(
     shutdown: Arc<AtomicBool>,
     hwnd: SendHwnd,
     tx: Sender<PollEvent>,
+    shared: SharedSnapshot,
 ) -> JoinHandle<()> {
     let interval = Duration::from_secs(interval_secs);
-    thread::spawn(move || polling_loop(creds, interval, shutdown, hwnd, tx))
+    thread::spawn(move || polling_loop(creds, interval, shutdown, hwnd, tx, shared))
 }
 
 fn polling_loop(
@@ -74,33 +79,71 @@ fn polling_loop(
     shutdown: Arc<AtomicBool>,
     hwnd: SendHwnd,
     tx: Sender<PollEvent>,
+    shared: SharedSnapshot,
 ) {
     tracing::info!(
         interval_secs = interval.as_secs(),
         "polling thread starting"
     );
 
+    // Track the last successful sample so the dashboard's shared snapshot can
+    // surface it between polls even when the most recent poll was 429/error.
+    let mut last_sample: Option<(crate::api::usage::UsageSnapshot, chrono::DateTime<chrono::Utc>)> = None;
+    // Starts as Initial; written to the shared snapshot immediately so the
+    // dashboard can show "fetching…" before the first poll completes.
+    let mut last_status = LastStatus::Initial;
+    // Publish the Initial status to the shared snapshot right away so the
+    // dashboard doesn't show stale/default data while the first poll is running.
+    if let Ok(mut g) = shared.write() {
+        g.last_status = last_status.clone();
+    }
+
     while !shutdown.load(Ordering::Relaxed) {
         let fetch_at = Instant::now();
 
-        // Stage 5: refresh local cache + derive caps + live util.
-        let calib = compute_calibration();
+        // Stage 5: refresh local cache + derive caps + live util. NOW also
+        // returns the turns Arc so we can put it on the shared snapshot.
+        let (calib, turns_arc) = compute_calibration_with_turns();
 
-        // API fetch.
+        // API fetch. Update persistent last_sample / last_status so the shared
+        // snapshot always carries the freshest available status even on 429/error.
         let event = match poll_once(&creds) {
-            Ok(snap) => PollEvent::Ok {
-                snap,
-                calib: Box::new(calib),
-            },
-            Err(FetchError::RateLimited) => PollEvent::RateLimited,
-            Err(other) => PollEvent::Error(other.to_string()),
+            Ok(snap) => {
+                last_sample = Some((snap.clone(), chrono::Utc::now()));
+                last_status = LastStatus::Ok;
+                PollEvent::Ok { snap, calib: Box::new(calib.clone()) }
+            }
+            Err(FetchError::RateLimited) => {
+                last_status = LastStatus::RateLimited;
+                PollEvent::RateLimited
+            }
+            Err(other) => {
+                let msg = other.to_string();
+                last_status = LastStatus::Error(msg.clone());
+                PollEvent::Error(msg)
+            }
         };
 
-        // If the UI thread has already dropped the receiver, send fails — we
-        // simply exit the loop on the next shutdown check.
+        // Write the shared snapshot for the dashboard. Build BEFORE sending
+        // the mpsc event so an immediate UI-thread reaction can see fresh data.
+        let kpis = compute_kpis(&turns_arc, &calib.caps);
+        let snapshot = AppSnapshot {
+            turns: turns_arc,
+            caps: calib.caps,
+            hourly_5h: calib.hourly_5h,
+            hourly_week: calib.hourly_week,
+            live_util: calib.live,
+            last_sample: last_sample.clone(),
+            last_status: last_status.clone(),
+            kpis,
+        };
+        match shared.write() {
+            Ok(mut g) => *g = snapshot,
+            Err(e) => tracing::warn!(error = ?e, "SharedSnapshot lock poisoned, dashboard data stale"),
+        }
+
         let _ = tx.send(event);
 
-        // Wake the UI thread to drain the channel.
         // SAFETY: PostMessageW is thread-safe; the HWND is valid until shutdown.
         unsafe {
             let _ = PostMessageW(hwnd.0, WM_APP_POLL, WPARAM(0), LPARAM(0));
@@ -112,9 +155,11 @@ fn polling_loop(
     tracing::info!("polling thread exiting");
 }
 
-/// Refresh cache, read calibration log, derive caps, compute live util + hourly.
-/// On any error returns `PollCalibration::default()` so the poll itself still proceeds.
-fn compute_calibration() -> PollCalibration {
+/// Refresh cache, read log, derive caps, compute live util + hourly. Returns
+/// (calibration, turns_arc) so the polling loop can put turns on the shared
+/// snapshot. On any error, returns (default, Arc::new(Vec::new())) so the
+/// poll itself still proceeds.
+fn compute_calibration_with_turns() -> (PollCalibration, Arc<Vec<Turn>>) {
     use crate::calibration::anchors::derive_caps;
     use crate::calibration::hourly::hour_of_day_cap_series;
     use crate::calibration::live::live_util_now;
@@ -126,36 +171,33 @@ fn compute_calibration() -> PollCalibration {
         Ok(t) => t,
         Err(e) => {
             tracing::warn!(error = %e, "cache::refresh failed; skipping calibration this tick");
-            return PollCalibration::default();
+            return (PollCalibration::default(), Arc::new(Vec::new()));
         }
     };
+    let turns_arc = Arc::new(turns);
     let log = match log_calib::read_all_default() {
         Ok(l) => l,
         Err(e) => {
             tracing::warn!(error = %e, "calibration log read failed; skipping calibration this tick");
-            return PollCalibration::default();
+            return (PollCalibration::default(), turns_arc);
         }
     };
 
-    let caps = derive_caps(&log, &turns);
-    let hourly_5h = hour_of_day_cap_series(&log, &turns, WindowKind::FiveHour);
-    let hourly_week = hour_of_day_cap_series(&log, &turns, WindowKind::Weekly);
-    let live = live_util_now(&turns, &caps);
+    let caps = derive_caps(&log, &turns_arc);
+    let hourly_5h = hour_of_day_cap_series(&log, &turns_arc, WindowKind::FiveHour);
+    let hourly_week = hour_of_day_cap_series(&log, &turns_arc, WindowKind::Weekly);
+    let live = live_util_now(&turns_arc, &caps);
 
     tracing::debug!(
         n_anchors_5h = caps.n_anchors_5h,
         n_anchors_week = caps.n_anchors_week,
         cap_5h = ?caps.cap_5h,
         cap_week = ?caps.cap_week,
+        n_turns = turns_arc.len(),
         "calibration computed"
     );
 
-    PollCalibration {
-        caps,
-        live,
-        hourly_5h,
-        hourly_week,
-    }
+    (PollCalibration { caps, live, hourly_5h, hourly_week }, turns_arc)
 }
 
 fn sleep_interruptible(shutdown: &Arc<AtomicBool>, fetch_at: Instant, interval: Duration) {

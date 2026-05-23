@@ -19,6 +19,8 @@ use std::sync::Arc;
 /// otherwise terminated. Returns `Ok(())` on clean shutdown.
 pub fn run(interval_secs: u64) -> Result<()> {
     let creds = load_from_default_path()?;
+    use crate::shared::new_shared_snapshot;
+    let shared = new_shared_snapshot();
     let hinst = window::current_hinstance()?;
     let renderer = icon::IconRenderer::new();
 
@@ -46,7 +48,7 @@ pub fn run(interval_secs: u64) -> Result<()> {
     render_and_store_initial_icon(hwnd, &initial_tooltip)?;
 
     let send_hwnd = poller::SendHwnd(hwnd);
-    let poll_handle = poller::spawn(creds, interval_secs, shutdown.clone(), send_hwnd, tx);
+    let poll_handle = poller::spawn(creds, interval_secs, shutdown.clone(), send_hwnd, tx, shared.clone());
 
     // Run the message loop until WM_QUIT.
     window::message_loop();
