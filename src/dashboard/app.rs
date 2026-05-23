@@ -52,6 +52,20 @@ impl eframe::App for DashboardApp {
                 ui.add_space(8.0);
                 crate::dashboard::kpi::render(ui, &snap.kpis, caps_available);
                 ui.add_space(16.0);
+                if snap.caps.cap_5h.is_none() && snap.caps.cap_week.is_none() {
+                    egui::Frame::default()
+                        .fill(egui::Color32::from_rgb(60, 50, 30))
+                        .inner_margin(egui::Margin::same(8.0))
+                        .show(ui, |ui| {
+                            ui.label(
+                                egui::RichText::new(
+                                    "Uncalibrated — charts show raw output tokens until first ≥95% anchor is observed in the calibration log.",
+                                )
+                                .color(egui::Color32::from_rgb(220, 200, 120))
+                            );
+                        });
+                    ui.add_space(8.0);
+                }
                 ui.separator();
                 ui.add_space(8.0);
                 crate::dashboard::chart_5h::render(ui, &snap, &mut self.range_5h);
