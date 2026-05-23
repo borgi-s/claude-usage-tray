@@ -154,7 +154,6 @@ fn base_notify_data(
 ///   0.00 → green (#2eb82e), 0.60 → yellow (#e6b800), 0.85+ → red (#cc2929).
 /// Values below 0 clamp to green; values at/above 0.85 clamp to red.
 /// Linear RGB interpolation between anchors.
-#[allow(dead_code)]
 pub(crate) fn anchored_gradient(util: f64) -> (u8, u8, u8) {
     let u = util.clamp(0.0, 1.0);
     let (start, end, t) = if u < 0.60 {
@@ -174,9 +173,71 @@ pub(crate) fn anchored_gradient(util: f64) -> (u8, u8, u8) {
     )
 }
 
+/// What the icon's glyph slot should show. The `Digits` variant carries a 0..=100
+/// percentage; `Bang` is the `!` for over-100% util; `Question` is the `?` for
+/// no-data states.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Glyph {
+    Digits(u8),
+    Bang,
+    Question,
+}
+
+/// Pure: pick the max utilization across the two buckets.
+/// Returns None only if neither bucket has data.
+#[allow(dead_code)]
+fn util_max(snap: &UsageSnapshot) -> Option<f64> {
+    let h5 = snap.five_hour.as_ref().map(|b| b.utilization);
+    let d7 = snap.seven_day.as_ref().map(|b| b.utilization);
+    match (h5, d7) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
+    }
+}
+
+/// Pure: decide background color and glyph from the current poll state.
+///
+/// Maps:
+/// - Initial / RateLimited / Error / (Ok + no sample) → gray + `?`
+/// - Ok + util > 1.0                                   → red + `!`
+/// - Ok + util ≤ 1.0                                   → gradient + digits
+#[allow(dead_code)]
+pub(crate) fn compute_visual(
+    status: &LastStatus,
+    sample: Option<&UsageSnapshot>,
+) -> ((u8, u8, u8), Glyph) {
+    match status {
+        LastStatus::Initial | LastStatus::RateLimited | LastStatus::Error(_) => {
+            ((0x80, 0x80, 0x80), Glyph::Question)
+        }
+        LastStatus::Ok => match sample.and_then(util_max) {
+            Some(u) if u > 1.0 => ((0xCC, 0x29, 0x29), Glyph::Bang),
+            Some(u) => (anchored_gradient(u), Glyph::Digits(percent_int(u))),
+            None => ((0x80, 0x80, 0x80), Glyph::Question),
+        },
+    }
+}
+
+/// Round a util in [0.0, 1.0] to an integer percent in 0..=100.
+#[allow(dead_code)]
+fn percent_int(util: f64) -> u8 {
+    let pct = (util.clamp(0.0, 1.0) * 100.0).round();
+    pct as u8
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::usage::UsageBucket;
+
+    fn snap_with(five: Option<f64>, seven: Option<f64>) -> UsageSnapshot {
+        UsageSnapshot {
+            five_hour: five.map(|u| UsageBucket { utilization: u, resets_at: None }),
+            seven_day: seven.map(|u| UsageBucket { utilization: u, resets_at: None }),
+        }
+    }
 
     #[test]
     fn anchored_gradient_anchors_match() {
@@ -212,5 +273,67 @@ mod tests {
         // G: 184 + 0.5*(41-184) = 113 (rounded from 112.5)
         // B: 0 + 0.5*(41-0) = 21 (rounded from 20.5)
         assert_eq!(anchored_gradient(0.725), (217, 113, 21));
+    }
+
+    #[test]
+    fn compute_visual_initial_is_gray_question() {
+        let (bg, g) = compute_visual(&LastStatus::Initial, None);
+        assert_eq!(bg, (0x80, 0x80, 0x80));
+        assert!(matches!(g, Glyph::Question));
+    }
+
+    #[test]
+    fn compute_visual_rate_limited_is_gray_question_even_with_cached_sample() {
+        let snap = snap_with(Some(0.50), Some(0.20));
+        let (bg, g) = compute_visual(&LastStatus::RateLimited, Some(&snap));
+        assert_eq!(bg, (0x80, 0x80, 0x80));
+        assert!(matches!(g, Glyph::Question));
+    }
+
+    #[test]
+    fn compute_visual_error_is_gray_question() {
+        let snap = snap_with(Some(0.50), None);
+        let (bg, g) = compute_visual(&LastStatus::Error("network".into()), Some(&snap));
+        assert_eq!(bg, (0x80, 0x80, 0x80));
+        assert!(matches!(g, Glyph::Question));
+    }
+
+    #[test]
+    fn compute_visual_ok_with_no_sample_is_gray_question() {
+        let (bg, g) = compute_visual(&LastStatus::Ok, None);
+        assert_eq!(bg, (0x80, 0x80, 0x80));
+        assert!(matches!(g, Glyph::Question));
+    }
+
+    #[test]
+    fn compute_visual_ok_under_100_uses_gradient_and_digits() {
+        let snap = snap_with(Some(0.57), Some(0.42));
+        let (bg, g) = compute_visual(&LastStatus::Ok, Some(&snap));
+        // max = 0.57, in green→yellow range
+        assert_eq!(bg, anchored_gradient(0.57));
+        assert!(matches!(g, Glyph::Digits(57)));
+    }
+
+    #[test]
+    fn compute_visual_ok_max_picks_larger_bucket() {
+        // 5h is smaller, 7d should win
+        let snap = snap_with(Some(0.20), Some(0.80));
+        let (_, g) = compute_visual(&LastStatus::Ok, Some(&snap));
+        assert!(matches!(g, Glyph::Digits(80)));
+    }
+
+    #[test]
+    fn compute_visual_ok_over_100_is_red_bang() {
+        let snap = snap_with(Some(1.10), None);
+        let (bg, g) = compute_visual(&LastStatus::Ok, Some(&snap));
+        assert_eq!(bg, (0xCC, 0x29, 0x29));
+        assert!(matches!(g, Glyph::Bang));
+    }
+
+    #[test]
+    fn compute_visual_ok_one_bucket_missing_uses_the_other() {
+        let snap = snap_with(Some(0.65), None);
+        let (_, g) = compute_visual(&LastStatus::Ok, Some(&snap));
+        assert!(matches!(g, Glyph::Digits(65)));
     }
 }
