@@ -42,6 +42,31 @@ pub fn classify_subagent(path: &std::path::Path) -> (bool, Option<String>) {
     (true, id)
 }
 
+/// Recursively yields every `*.jsonl` file under `root` (any depth).
+///
+/// Returns an empty iterator if `root` doesn't exist or can't be read —
+/// callers don't need to special-case the first-run case.
+pub fn walk_jsonl(root: &std::path::Path) -> impl Iterator<Item = PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    walk_inner(root, &mut out);
+    out.into_iter()
+}
+
+fn walk_inner(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+            walk_inner(&p, out);
+        } else if p.extension().and_then(|s| s.to_str()) == Some("jsonl") {
+            out.push(p);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -79,5 +104,38 @@ mod tests {
         let (is_sub, id) = classify_subagent(p);
         assert!(is_sub);
         assert_eq!(id, None);
+    }
+
+    use tempfile::TempDir;
+
+    fn touch(dir: &Path, rel: &str) {
+        let p = dir.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, "").unwrap();
+    }
+
+    #[test]
+    fn walk_jsonl_recurses_and_filters_by_extension() {
+        let td = TempDir::new().unwrap();
+        let root = td.path();
+        touch(root, "sess-a.jsonl");
+        touch(root, "proj1/sess-b.jsonl");
+        touch(root, "proj1/subagents/agent-1.jsonl");
+        touch(root, "proj1/notes.txt");    // should be filtered
+        touch(root, "proj2/sub/sub/c.jsonl");
+
+        let mut found: Vec<_> = walk_jsonl(root).collect();
+        found.sort();
+
+        assert_eq!(found.len(), 4);
+        assert!(found.iter().all(|p| p.extension().and_then(|s| s.to_str()) == Some("jsonl")));
+    }
+
+    #[test]
+    fn walk_jsonl_returns_empty_for_missing_root() {
+        let td = TempDir::new().unwrap();
+        let missing = td.path().join("does-not-exist");
+        let found: Vec<_> = walk_jsonl(&missing).collect();
+        assert!(found.is_empty());
     }
 }
