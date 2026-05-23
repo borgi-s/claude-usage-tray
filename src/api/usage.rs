@@ -14,14 +14,14 @@ struct RawBucket {
     resets_at: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct UsageBucket {
     /// Normalized to 0.0-1.0 (Anthropic returns 0-100 percentage; we divide by 100).
     pub utilization: f64,
     pub resets_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct UsageSnapshot {
     pub five_hour: Option<UsageBucket>,
     pub seven_day: Option<UsageBucket>,

@@ -14,9 +14,10 @@ pub struct Frame {
 }
 
 /// Status badge shown in the footer of each frame.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum LastStatus {
     /// Before the first poll completes.
+    #[default]
     Initial,
     /// Most recent poll succeeded.
     Ok,
