@@ -170,7 +170,10 @@ fn write_parquet(schema: Arc<Schema>, batch: &RecordBatch) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::credentials::Credentials;
+    use crate::api::usage::{UsageBucket, UsageSnapshot};
     use crate::data::parser::Turn;
+    use crate::shared::snapshot::AppSnapshot;
     use chrono::TimeZone;
     use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
     use std::io::Write;
@@ -275,10 +278,6 @@ mod tests {
         assert_eq!(batch.schema().fields().len(), 17);
     }
 
-    use crate::api::credentials::Credentials;
-    use crate::api::usage::{UsageBucket, UsageSnapshot};
-    use crate::shared::snapshot::AppSnapshot;
-
     #[test]
     fn caps_json_populates_from_snapshot_and_nulls_the_rest() {
         let usage = UsageSnapshot {
@@ -322,6 +321,8 @@ mod tests {
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert!(v["sampled_at"].is_null());
         assert!(v["sample_util_5h"].is_null());
+        assert!(v["resets_5h_iso"].is_null());
+        assert!(v["resets_7d_iso"].is_null());
         assert_eq!(v["subscription_type"], "pro");
     }
 
