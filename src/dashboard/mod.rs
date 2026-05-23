@@ -1,6 +1,7 @@
 //! Native egui dashboard window.
 
 pub mod app;
+pub mod range;
 
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
