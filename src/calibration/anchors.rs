@@ -1,6 +1,7 @@
 //! Median-of-anchors cap derivation.
 
 use chrono::{DateTime, Utc};
+use crate::data::parser::Turn;
 
 /// Caps derived from the latest calibration log + cache.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -47,6 +48,40 @@ pub fn last_weekly_reset(anchor_ts: DateTime<Utc>) -> DateTime<Utc> {
     candidate.with_timezone(&Utc)
 }
 
+/// Sum `output_tokens` for the gap-based 5h window containing `anchor_ts`.
+///
+/// `turns` is assumed sorted by `ts` ascending. The window resets to start at
+/// the current turn whenever:
+///   - the gap from the previous turn is `>= FIVE_HOUR_WINDOW_HOURS`, OR
+///   - the window has been open for `>= FIVE_HOUR_WINDOW_HOURS`.
+pub fn five_hour_burn_at(turns: &[Turn], anchor_ts: DateTime<Utc>) -> u64 {
+    let gap = Duration::milliseconds((config::FIVE_HOUR_WINDOW_HOURS * 3_600_000.0) as i64);
+    let mut current_start: Option<DateTime<Utc>> = None;
+    let mut last_ts: Option<DateTime<Utc>> = None;
+    let mut burn: u64 = 0;
+
+    for t in turns.iter().filter(|t| t.ts <= anchor_ts) {
+        match (current_start, last_ts) {
+            (None, _) => {
+                current_start = Some(t.ts);
+            }
+            (Some(start), Some(prev)) => {
+                let since_last = t.ts - prev;
+                let since_start = t.ts - start;
+                if since_last >= gap || since_start >= gap {
+                    current_start = Some(t.ts);
+                    burn = 0;
+                }
+            }
+            (Some(_), None) => unreachable!("current_start implies last_ts"),
+        }
+        burn += t.output_tokens;
+        last_ts = Some(t.ts);
+    }
+
+    burn
+}
+
 #[allow(dead_code)]
 fn _silence_imports(_: Weekday) {}
 
@@ -54,9 +89,68 @@ fn _silence_imports(_: Weekday) {}
 mod tests {
     use super::*;
     use chrono::TimeZone;
+    use crate::data::parser::Turn;
+    use std::path::PathBuf;
 
     fn utc(y: i32, m: u32, d: u32, h: u32, mi: u32) -> DateTime<Utc> {
         Utc.with_ymd_and_hms(y, m, d, h, mi, 0).unwrap()
+    }
+
+    fn turn(ts: DateTime<Utc>, output: u64) -> Turn {
+        Turn {
+            ts,
+            session_id: String::new(),
+            subagent_id: None,
+            is_subagent: false,
+            project_cwd: String::new(),
+            model: String::new(),
+            version: String::new(),
+            input_tokens: 0,
+            output_tokens: output,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+            source_file: PathBuf::new(),
+            is_rate_limit_error: false,
+        }
+    }
+
+    #[test]
+    fn five_hour_burn_at_single_window_sums_all() {
+        let turns = vec![
+            turn(utc(2026, 5, 24, 10, 0), 100),
+            turn(utc(2026, 5, 24, 11, 0), 200),
+            turn(utc(2026, 5, 24, 12, 0), 300),
+        ];
+        let anchor = utc(2026, 5, 24, 13, 0);
+        assert_eq!(five_hour_burn_at(&turns, anchor), 600);
+    }
+
+    #[test]
+    fn five_hour_burn_at_drops_pre_gap_turns() {
+        // First turn at 04:00, big gap, then a session 10:00-12:00 totalling 500.
+        // Anchor at 12:00 should include only the 10:00+ turns.
+        let turns = vec![
+            turn(utc(2026, 5, 24, 4, 0), 999),   // pre-gap — should be excluded
+            turn(utc(2026, 5, 24, 10, 0), 100),
+            turn(utc(2026, 5, 24, 11, 0), 200),
+            turn(utc(2026, 5, 24, 12, 0), 200),
+        ];
+        let anchor = utc(2026, 5, 24, 12, 0);
+        assert_eq!(five_hour_burn_at(&turns, anchor), 500);
+    }
+
+    #[test]
+    fn five_hour_burn_at_window_rollover_by_duration() {
+        // Continuous activity over >4.5 hours triggers rollover at the 4.5h mark.
+        let turns = vec![
+            turn(utc(2026, 5, 24, 8, 0), 100),
+            turn(utc(2026, 5, 24, 10, 0), 200),
+            turn(utc(2026, 5, 24, 12, 30), 300),  // 4.5h after 08:00 → new window starts here
+            turn(utc(2026, 5, 24, 13, 0), 400),
+        ];
+        let anchor = utc(2026, 5, 24, 13, 0);
+        // New window starts at 12:30. Sums 300 + 400 = 700.
+        assert_eq!(five_hour_burn_at(&turns, anchor), 700);
     }
 
     #[test]
