@@ -46,8 +46,14 @@ pub fn refresh_at(projects_root: &Path, app_dir: &Path) -> Result<Vec<Turn>, Cac
     std::fs::create_dir_all(app_dir)?;
 
     // 1. Load prior cache + manifest, tolerating any failure (treat as empty).
-    let mut prior_turns: Vec<Turn> = load_cache(app_dir).unwrap_or_default();
-    let mut prior_mtimes: HashMap<PathBuf, i64> = load_manifest(app_dir).unwrap_or_default();
+    let cache_result = load_cache(app_dir);
+    let mut prior_turns: Vec<Turn> = cache_result.as_ref().unwrap_or(&Vec::new()).clone();
+    // If cache is corrupt, also reset manifest so we re-scan everything.
+    let mut prior_mtimes: HashMap<PathBuf, i64> = if cache_result.is_ok() {
+        load_manifest(app_dir).unwrap_or_default()
+    } else {
+        HashMap::new()
+    };
 
     // 2. Walk root for *.jsonl and read current mtimes.
     let current: Vec<PathBuf> = walk_jsonl(projects_root).collect();

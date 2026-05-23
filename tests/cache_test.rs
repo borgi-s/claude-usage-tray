@@ -60,3 +60,41 @@ fn refresh_no_changes_returns_quickly_with_same_count() {
     let turns_2 = cache::refresh_at(projects.path(), app_dir.path()).unwrap();
     assert_eq!(turns_1, turns_2);
 }
+
+#[test]
+fn refresh_drops_rows_from_deleted_files() {
+    let projects = TempDir::new().unwrap();
+    let app_dir = TempDir::new().unwrap();
+    write_jsonl(projects.path(), "a.jsonl", SAMPLE_USAGE_LINE);
+    write_jsonl(projects.path(), "b.jsonl", SAMPLE_USAGE_LINE);
+
+    let turns_1 = cache::refresh_at(projects.path(), app_dir.path()).unwrap();
+    assert_eq!(turns_1.len(), 2);
+
+    std::fs::remove_file(projects.path().join("a.jsonl")).unwrap();
+
+    let turns_2 = cache::refresh_at(projects.path(), app_dir.path()).unwrap();
+    assert_eq!(turns_2.len(), 1);
+}
+
+#[test]
+fn refresh_recovers_from_corrupt_cache() {
+    let projects = TempDir::new().unwrap();
+    let app_dir = TempDir::new().unwrap();
+    write_jsonl(projects.path(), "a.jsonl", SAMPLE_USAGE_LINE);
+
+    // Prime the cache.
+    let _ = cache::refresh_at(projects.path(), app_dir.path()).unwrap();
+
+    // Corrupt the cache file.
+    std::fs::write(app_dir.path().join("cache.bincode"), b"not bincode").unwrap();
+
+    // Refresh should silently rebuild and return the correct rows.
+    let turns = cache::refresh_at(projects.path(), app_dir.path()).unwrap();
+    assert_eq!(turns.len(), 1);
+
+    // A second refresh on an unchanged tree must succeed (proves the rebuild
+    // produced a deserializable cache).
+    let turns2 = cache::refresh_at(projects.path(), app_dir.path()).unwrap();
+    assert_eq!(turns2.len(), 1);
+}
