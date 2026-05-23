@@ -3,16 +3,14 @@ use crate::render::LastStatus;
 use anyhow::{anyhow, Result};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::GdiPlus::{
-    FillModeAlternate, FontStyleBold, GdipAddPathString, GdipCreateFontFamilyFromName,
-    GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill, GdipCreateStringFormat,
-    GdipDeleteBrush, GdipDeleteFontFamily, GdipDeletePath, GdipDeletePen,
-    GdipDeleteStringFormat, GdipDrawPath, GdipFillPath, GdipSetStringFormatAlign,
-    GdipSetStringFormatLineAlign, GdipSetTextRenderingHint,
-    GdipCreateBitmapFromScan0, GdipCreateHICONFromBitmap, GdipDeleteGraphics, GdipDisposeImage,
-    GdipGetImageGraphicsContext, GdipGraphicsClear,
-    GpBitmap, GpBrush, GpFontFamily, GpGraphics, GpImage, GpPath, GpPen, GpSolidFill,
-    GpStringFormat, RectF, Status,
-    StringAlignmentCenter, TextRenderingHintAntiAliasGridFit, UnitPixel,
+    FillModeAlternate, FontStyleBold, GdipAddPathString, GdipCreateBitmapFromScan0,
+    GdipCreateFontFamilyFromName, GdipCreateHICONFromBitmap, GdipCreatePath, GdipCreatePen1,
+    GdipCreateSolidFill, GdipCreateStringFormat, GdipDeleteBrush, GdipDeleteFontFamily,
+    GdipDeleteGraphics, GdipDeletePath, GdipDeletePen, GdipDeleteStringFormat, GdipDisposeImage,
+    GdipDrawPath, GdipFillPath, GdipGetImageGraphicsContext, GdipGraphicsClear,
+    GdipSetStringFormatAlign, GdipSetStringFormatLineAlign, GdipSetTextRenderingHint, GpBitmap,
+    GpBrush, GpFontFamily, GpGraphics, GpImage, GpPath, GpPen, GpSolidFill, GpStringFormat, RectF,
+    Status, StringAlignmentCenter, TextRenderingHintSingleBitPerPixel, UnitPixel,
 };
 use windows::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
@@ -97,9 +95,8 @@ pub(crate) fn anchored_gradient(util: f64) -> (u8, u8, u8) {
     } else {
         return (204, 41, 41);
     };
-    let lerp = |a: u8, b: u8, t: f64| -> u8 {
-        (a as f64 + t * (b as f64 - a as f64)).round() as u8
-    };
+    let lerp =
+        |a: u8, b: u8, t: f64| -> u8 { (a as f64 + t * (b as f64 - a as f64)).round() as u8 };
     (
         lerp(start.0, end.0, t),
         lerp(start.1, end.1, t),
@@ -187,11 +184,7 @@ impl IconRenderer {
 
     /// Render the current visual state to a fresh HICON.
     /// Returns an error if any GDI+ call fails.
-    pub fn render(
-        &self,
-        status: &LastStatus,
-        sample: Option<&UsageSnapshot>,
-    ) -> Result<HICON> {
+    pub fn render(&self, status: &LastStatus, sample: Option<&UsageSnapshot>) -> Result<HICON> {
         let ((r, g, b), glyph) = compute_visual(status, sample);
 
         // 1) Create a 16x16 ARGB bitmap.
@@ -208,12 +201,12 @@ impl IconRenderer {
         // 2) Get a Graphics for that bitmap.
         // SAFETY: bitmap was just created successfully; cast to GpImage is the GDI+ idiom.
         let mut graphics: *mut GpGraphics = std::ptr::null_mut();
-        let s = unsafe {
-            GdipGetImageGraphicsContext(bitmap as *mut GpImage, &mut graphics)
-        };
+        let s = unsafe { GdipGetImageGraphicsContext(bitmap as *mut GpImage, &mut graphics) };
         if s != Status(0) {
             // SAFETY: bitmap is valid; we own it.
-            unsafe { GdipDisposeImage(bitmap as *mut GpImage); }
+            unsafe {
+                GdipDisposeImage(bitmap as *mut GpImage);
+            }
             anyhow::bail!("GdipGetImageGraphicsContext failed: {s:?}");
         }
 
@@ -233,9 +226,9 @@ impl IconRenderer {
         // 4a) Glyph drawing: white digits / ! / ? with 1-pixel black outline.
         let (text, text_len) = glyph_to_text(glyph);
 
-        // Enable anti-aliased text rendering for the GraphicsPath.
+        // Use no-AA pixel rendering — crisp pixels at 16×16 instead of fuzzy AA blends.
         // SAFETY: graphics is valid; hint is a documented enum value.
-        unsafe { GdipSetTextRenderingHint(graphics, TextRenderingHintAntiAliasGridFit) };
+        unsafe { GdipSetTextRenderingHint(graphics, TextRenderingHintSingleBitPerPixel) };
 
         // Create FontFamily for "Segoe UI". Null font collection = system default.
         let font_name: Vec<u16> = "Segoe UI"
@@ -268,15 +261,24 @@ impl IconRenderer {
         unsafe { GdipSetStringFormatLineAlign(fmt, StringAlignmentCenter) };
 
         // Layout rect = full 16×16 bitmap.
-        let layout = RectF { X: 0.0, Y: 0.0, Width: 16.0, Height: 16.0 };
+        let layout = RectF {
+            X: 0.0,
+            Y: 0.0,
+            Width: 16.0,
+            Height: 16.0,
+        };
 
         // Build a GraphicsPath that traces the glyph outline.
         let mut path: *mut GpPath = std::ptr::null_mut();
         // SAFETY: out-pointer valid; FillModeAlternate is the standard winding rule.
         unsafe { GdipCreatePath(FillModeAlternate, &mut path) };
 
-        // Add the glyph text to the path. Em-size 11 works well for 1-2 chars at 16×16.
-        // FontStyleBold.0 unwraps the FontStyle newtype to i32 for the style parameter.
+        // Adaptive em-size: a single character fills the 16×16 box (em-size 14);
+        // two-digit values shrink so "77" or "99" fit horizontally (em-size 10).
+        // Bigger is more legible; smaller is needed to avoid clipping the second digit.
+        let em_size: f32 = if text_len >= 2 { 10.0 } else { 14.0 };
+
+        // Add the glyph text to the path. FontStyleBold.0 unwraps the newtype to i32.
         // SAFETY: text is null-terminated PCWSTR; text_len is correct code-unit count.
         unsafe {
             GdipAddPathString(
@@ -285,7 +287,7 @@ impl IconRenderer {
                 text_len,
                 family,
                 FontStyleBold.0,
-                11.0f32,
+                em_size,
                 &layout,
                 fmt,
             )
@@ -351,16 +353,22 @@ mod tests {
 
     fn snap_with(five: Option<f64>, seven: Option<f64>) -> UsageSnapshot {
         UsageSnapshot {
-            five_hour: five.map(|u| UsageBucket { utilization: u, resets_at: None }),
-            seven_day: seven.map(|u| UsageBucket { utilization: u, resets_at: None }),
+            five_hour: five.map(|u| UsageBucket {
+                utilization: u,
+                resets_at: None,
+            }),
+            seven_day: seven.map(|u| UsageBucket {
+                utilization: u,
+                resets_at: None,
+            }),
         }
     }
 
     #[test]
     fn anchored_gradient_anchors_match() {
-        assert_eq!(anchored_gradient(0.00), (46, 184, 46));   // green
-        assert_eq!(anchored_gradient(0.60), (230, 184, 0));   // yellow
-        assert_eq!(anchored_gradient(0.85), (204, 41, 41));   // red
+        assert_eq!(anchored_gradient(0.00), (46, 184, 46)); // green
+        assert_eq!(anchored_gradient(0.60), (230, 184, 0)); // yellow
+        assert_eq!(anchored_gradient(0.85), (204, 41, 41)); // red
     }
 
     #[test]
