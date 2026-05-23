@@ -79,11 +79,12 @@ fn polling_loop(
     while !shutdown.load(Ordering::Relaxed) {
         let fetch_at = Instant::now();
 
+        // Stage 5: refresh local cache + derive caps + live util.
+        let calib = compute_calibration();
+
+        // API fetch.
         let event = match poll_once(&creds) {
-            Ok(snap) => PollEvent::Ok {
-                snap,
-                calib: PollCalibration::default(),
-            },
+            Ok(snap) => PollEvent::Ok { snap, calib },
             Err(FetchError::RateLimited) => PollEvent::RateLimited,
             Err(other) => PollEvent::Error(other.to_string()),
         };
@@ -102,6 +103,52 @@ fn polling_loop(
     }
 
     tracing::info!("polling thread exiting");
+}
+
+/// Refresh cache, read calibration log, derive caps, compute live util + hourly.
+/// On any error returns `PollCalibration::default()` so the poll itself still proceeds.
+fn compute_calibration() -> PollCalibration {
+    use crate::calibration::anchors::derive_caps;
+    use crate::calibration::hourly::hour_of_day_cap_series;
+    use crate::calibration::live::live_util_now;
+    use crate::calibration::WindowKind;
+    use crate::data::cache;
+    use crate::log::calibration as log_calib;
+
+    let turns = match cache::refresh() {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!(error = %e, "cache::refresh failed; skipping calibration this tick");
+            return PollCalibration::default();
+        }
+    };
+    let log = match log_calib::read_all_default() {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::warn!(error = %e, "calibration log read failed; skipping calibration this tick");
+            return PollCalibration::default();
+        }
+    };
+
+    let caps = derive_caps(&log, &turns);
+    let hourly_5h = hour_of_day_cap_series(&log, &turns, WindowKind::FiveHour);
+    let hourly_week = hour_of_day_cap_series(&log, &turns, WindowKind::Weekly);
+    let live = live_util_now(&turns, &caps);
+
+    tracing::debug!(
+        n_anchors_5h = caps.n_anchors_5h,
+        n_anchors_week = caps.n_anchors_week,
+        cap_5h = ?caps.cap_5h,
+        cap_week = ?caps.cap_week,
+        "calibration computed"
+    );
+
+    PollCalibration {
+        caps,
+        live,
+        hourly_5h,
+        hourly_week,
+    }
 }
 
 fn sleep_interruptible(shutdown: &Arc<AtomicBool>, fetch_at: Instant, interval: Duration) {
