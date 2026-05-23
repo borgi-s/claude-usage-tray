@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 1450" font-family="system-ui, -apple-system, Segoe UI, sans-serif">
+  <defs>
+    <!-- B: gradient anchored to Stage 3 thresholds (green 0% → yellow 60% → red 85%) -->
+    <linearGradient id="anchored" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#2eb82e"/>
+      <stop offset="60%"  stop-color="#e6b800"/>
+      <stop offset="85%"  stop-color="#cc2929"/>
+      <stop offset="100%" stop-color="#cc2929"/>
+    </linearGradient>
+    <!-- C: pure linear (green 0% → yellow 50% → red 100%) -->
+    <linearGradient id="linear" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#2eb82e"/>
+      <stop offset="50%"  stop-color="#e6b800"/>
+      <stop offset="100%" stop-color="#cc2929"/>
+    </linearGradient>
+  </defs>
+
+  <style>
+    .title { font-size: 22px; font-weight: 700; fill: #111; }
+    .sub   { font-size: 14px; fill: #555; }
+    .hdr   { font-size: 14px; font-weight: 700; fill: #111; text-anchor: middle; }
+    .lbl   { font-size: 12px; fill: #888; }
+    .util  { font-size: 16px; font-weight: 700; fill: #333; }
+    .desc  { font-size: 13px; fill: #444; }
+    .strip-label { font-size: 11px; fill: #666; }
+    .icon-text { font-family: Segoe UI, sans-serif; font-weight: 700; }
+  </style>
+
+  <rect width="100%" height="100%" fill="#fafafa"/>
+
+  <!-- HEADER -->
+  <text x="30" y="38" class="title">Stage 4 — discrete bands vs gradient color mapping</text>
+  <text x="30" y="62" class="sub">Same icon (max-only number, Q1 = A). Only the background color varies.</text>
+  <text x="30" y="80" class="sub">Three schemes shown at 5 util levels. Look at the 50% and 80% rows in particular.</text>
+
+  <!-- COLUMN HEADERS -->
+  <text x="180" y="120" class="hdr">A: Discrete bands</text>
+  <text x="180" y="138" class="lbl" text-anchor="middle">(Stage 3 status quo)</text>
+  <text x="350" y="120" class="hdr">B: Anchored gradient</text>
+  <text x="350" y="138" class="lbl" text-anchor="middle">(green 0%, yellow 60%, red 85%+)</text>
+  <text x="520" y="120" class="hdr">C: Linear gradient</text>
+  <text x="520" y="138" class="lbl" text-anchor="middle">(green 0%, yellow 50%, red 100%)</text>
+
+  <!-- ROW 1: 25% -->
+  <text x="40" y="200" class="util">25%</text>
+  <!-- A: green -->
+  <rect x="130" y="170" width="16" height="16" fill="#2eb82e"/>
+  <rect x="155" y="170" width="64" height="64" fill="#2eb82e"/>
+  <text x="167" y="218" font-size="44" class="icon-text" fill="white">25</text>
+  <!-- B: anchored gradient at 25% → mostly green with a hint of yellow -->
+  <rect x="300" y="170" width="16" height="16" fill="#7bb81b"/>
+  <rect x="325" y="170" width="64" height="64" fill="#7bb81b"/>
+  <text x="337" y="218" font-size="44" class="icon-text" fill="white">25</text>
+  <!-- C: linear gradient at 25% → halfway green-to-yellow -->
+  <rect x="470" y="170" width="16" height="16" fill="#8ab817"/>
+  <rect x="495" y="170" width="64" height="64" fill="#8ab817"/>
+  <text x="507" y="218" font-size="44" class="icon-text" fill="white">25</text>
+
+  <!-- ROW 2: 50% -->
+  <text x="40" y="290" class="util">50%</text>
+  <!-- A: green (still below 60 threshold) -->
+  <rect x="130" y="260" width="16" height="16" fill="#2eb82e"/>
+  <rect x="155" y="260" width="64" height="64" fill="#2eb82e"/>
+  <text x="167" y="308" font-size="44" class="icon-text" fill="white">50</text>
+  <!-- B: anchored at 50% → close to yellow (~83% of the green-to-yellow leg) -->
+  <rect x="300" y="260" width="16" height="16" fill="#c7b808"/>
+  <rect x="325" y="260" width="64" height="64" fill="#c7b808"/>
+  <text x="337" y="308" font-size="44" class="icon-text" fill="white">50</text>
+  <!-- C: linear at 50% → pure yellow -->
+  <rect x="470" y="260" width="16" height="16" fill="#e6b800"/>
+  <rect x="495" y="260" width="64" height="64" fill="#e6b800"/>
+  <text x="507" y="308" font-size="44" class="icon-text" fill="white">50</text>
+
+  <!-- ROW 3: 65% -->
+  <text x="40" y="380" class="util">65%</text>
+  <!-- A: yellow (just over 60 threshold) -->
+  <rect x="130" y="350" width="16" height="16" fill="#e6b800"/>
+  <rect x="155" y="350" width="64" height="64" fill="#e6b800"/>
+  <text x="167" y="398" font-size="44" class="icon-text" fill="white">65</text>
+  <!-- B: anchored at 65% → just past yellow heading toward red -->
+  <rect x="300" y="350" width="16" height="16" fill="#e19b08"/>
+  <rect x="325" y="350" width="64" height="64" fill="#e19b08"/>
+  <text x="337" y="398" font-size="44" class="icon-text" fill="white">65</text>
+  <!-- C: linear at 65% → orange -->
+  <rect x="470" y="350" width="16" height="16" fill="#de8d0c"/>
+  <rect x="495" y="350" width="64" height="64" fill="#de8d0c"/>
+  <text x="507" y="398" font-size="44" class="icon-text" fill="white">65</text>
+
+  <!-- ROW 4: 80% -->
+  <text x="40" y="470" class="util">80%</text>
+  <!-- A: yellow (still under 85) -->
+  <rect x="130" y="440" width="16" height="16" fill="#e6b800"/>
+  <rect x="155" y="440" width="64" height="64" fill="#e6b800"/>
+  <text x="167" y="488" font-size="44" class="icon-text" fill="white">80</text>
+  <!-- B: anchored at 80% → orange-red -->
+  <rect x="300" y="440" width="16" height="16" fill="#d14621"/>
+  <rect x="325" y="440" width="64" height="64" fill="#d14621"/>
+  <text x="337" y="488" font-size="44" class="icon-text" fill="white">80</text>
+  <!-- C: linear at 80% → red-orange -->
+  <rect x="470" y="440" width="16" height="16" fill="#d66219"/>
+  <rect x="495" y="440" width="64" height="64" fill="#d66219"/>
+  <text x="507" y="488" font-size="44" class="icon-text" fill="white">80</text>
+
+  <!-- ROW 5: 92% -->
+  <text x="40" y="560" class="util">92%</text>
+  <!-- A: red (past 85) -->
+  <rect x="130" y="530" width="16" height="16" fill="#cc2929"/>
+  <rect x="155" y="530" width="64" height="64" fill="#cc2929"/>
+  <text x="167" y="578" font-size="44" class="icon-text" fill="white">92</text>
+  <!-- B: anchored at 92% → red (clamped, 85-100 is solid red) -->
+  <rect x="300" y="530" width="16" height="16" fill="#cc2929"/>
+  <rect x="325" y="530" width="64" height="64" fill="#cc2929"/>
+  <text x="337" y="578" font-size="44" class="icon-text" fill="white">92</text>
+  <!-- C: linear at 92% → almost red -->
+  <rect x="470" y="530" width="16" height="16" fill="#d04022"/>
+  <rect x="495" y="530" width="64" height="64" fill="#d04022"/>
+  <text x="507" y="578" font-size="44" class="icon-text" fill="white">92</text>
+
+  <!-- DIVIDER -->
+  <line x1="20" y1="630" x2="600" y2="630" stroke="#ddd"/>
+
+  <!-- GRADIENT STRIPS: full 0-100 mapping for each scheme -->
+  <text x="30" y="670" class="hdr" text-anchor="start">Full 0–100% color sweep for each scheme</text>
+
+  <text x="30" y="710" class="strip-label">A — Discrete bands</text>
+  <!-- discrete: green 0-60, yellow 60-85, red 85-100. Strip is 540px wide. -->
+  <rect x="30" y="715" width="324" height="24" fill="#2eb82e"/>   <!-- 0-60 = 0.6*540 = 324 -->
+  <rect x="354" y="715" width="135" height="24" fill="#e6b800"/>  <!-- 60-85 = 0.25*540 = 135 -->
+  <rect x="489" y="715" width="81"  height="24" fill="#cc2929"/>  <!-- 85-100 = 0.15*540 = 81 -->
+  <text x="30"  y="754" class="strip-label">0%</text>
+  <text x="350" y="754" class="strip-label">60%</text>
+  <text x="485" y="754" class="strip-label">85%</text>
+  <text x="555" y="754" class="strip-label">100%</text>
+
+  <text x="30" y="800" class="strip-label">B — Anchored gradient</text>
+  <rect x="30" y="805" width="540" height="24" fill="url(#anchored)"/>
+  <text x="30"  y="844" class="strip-label">0%</text>
+  <text x="350" y="844" class="strip-label">60%</text>
+  <text x="485" y="844" class="strip-label">85%</text>
+  <text x="555" y="844" class="strip-label">100%</text>
+
+  <text x="30" y="890" class="strip-label">C — Linear gradient</text>
+  <rect x="30" y="895" width="540" height="24" fill="url(#linear)"/>
+  <text x="30"  y="934" class="strip-label">0%</text>
+  <text x="290" y="934" class="strip-label">50%</text>
+  <text x="555" y="934" class="strip-label">100%</text>
+
+  <!-- DIFFERENCES SUMMARY -->
+  <rect x="20" y="970" width="580" height="440" fill="#ffffff" stroke="#e3e3e3"/>
+  <text x="30" y="998" class="hdr" text-anchor="start">Where they differ in practice</text>
+
+  <text x="30" y="1030" class="desc" font-weight="700">A vs B/C at 50% util:</text>
+  <text x="30" y="1050" class="desc">A says "still safely green." B says "you're already nearly at the yellow threshold."</text>
+  <text x="30" y="1070" class="desc">C says "exactly the midpoint — pure yellow." Same number, very different vibe.</text>
+
+  <text x="30" y="1110" class="desc" font-weight="700">B vs C at 50% util:</text>
+  <text x="30" y="1130" class="desc">B anchors yellow at 60% (matches the Q4-A threshold), so 50% is "approaching yellow."</text>
+  <text x="30" y="1150" class="desc">C anchors yellow at 50%, so 50% IS yellow. Psychologically: 50% feels like a midpoint warning.</text>
+
+  <text x="30" y="1190" class="desc" font-weight="700">B vs C above 85%:</text>
+  <text x="30" y="1210" class="desc">B clamps to solid red from 85% onward (preserves the Q4 "red zone" threshold).</text>
+  <text x="30" y="1230" class="desc">C is still slightly orange-red at 92% — only pure red at 100%.</text>
+
+  <text x="30" y="1270" class="desc" font-weight="700">Implementation cost:</text>
+  <text x="30" y="1290" class="desc">A: 3 fixed colors. B: linear interp in two segments. C: linear interp in one segment.</text>
+  <text x="30" y="1310" class="desc">All trivial in GDI — just pick the right RGB before rendering. No additional dependencies.</text>
+
+  <text x="30" y="1350" class="desc" font-weight="700">My recommendation:</text>
+  <text x="30" y="1370" class="desc">B — anchored gradient. Keeps the Q4-A thresholds (60/85) as semantic inflection points</text>
+  <text x="30" y="1390" class="desc">while removing the abrupt color jump. C overstates intermediate values as warnings.</text>
+</svg>
