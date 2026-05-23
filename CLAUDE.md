@@ -19,7 +19,7 @@ User is a **Rust beginner** (zero prior Rust experience as of 2026-05-22). Expla
 - **Stage 3 spec:** `docs/superpowers/specs/2026-05-22-stage-3-tray-design.md` — Win32 tray icon design details.
 - **Stage 3 plan:** `docs/superpowers/plans/2026-05-22-stage-3-tray.md` — task plan. **Shipped 2026-05-22 (tag `v0.3.0`).**
 - **Stage 4 spec:** `docs/superpowers/specs/2026-05-23-stage-4-gdi-icon-design.md` — GDI+ rendered percentage icon design details.
-- **Stage 4 plan:** `docs/superpowers/plans/2026-05-23-stage-4-gdi-icon.md` — bite-sized task plan, ready to execute.
+- **Stage 4 plan:** `docs/superpowers/plans/2026-05-23-stage-4-gdi-icon.md` — bite-sized task plan, **executed locally; pending final tag and push.**
 
 Stages 5-8 will get their own implementation plans when each is ready to start.
 
@@ -30,7 +30,7 @@ Stages 5-8 will get their own implementation plans when each is ready to start.
 | 1 | Single-shot CLI: read OAuth, hit `/api/oauth/usage`, print util | ✅ Shipped — tag `v0.1.0`, pushed to GitHub |
 | 2 | Polling daemon (`--watch`) | ✅ Shipped — tag `v0.2.0`, pushed to GitHub |
 | 3 | Win32 tray icon (basic, solid color) | ✅ Shipped — tag `v0.3.0`, pushed to GitHub |
-| 4 | GDI-rendered percentage icon | Pending |
+| 4 | GDI-rendered percentage icon | ✅ Built locally — pending tag/push |
 | 5 | Calibration math (port from Python's `caps.global_cap_from_anchors`) | Pending |
 | 6 | egui dashboard window | Pending |
 | 6.5 | Update notifier (GitHub Releases API) | Pending |
