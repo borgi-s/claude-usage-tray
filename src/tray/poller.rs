@@ -5,8 +5,8 @@ use crate::calibration::live::LiveUtil;
 use crate::data::parser::Turn;
 use crate::poll::poll_once;
 use crate::render::LastStatus;
+use crate::shared::snapshot::{compute_kpis, AppSnapshot};
 use crate::shared::SharedSnapshot;
-use crate::shared::snapshot::{AppSnapshot, compute_kpis};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
@@ -88,7 +88,10 @@ fn polling_loop(
 
     // Track the last successful sample so the dashboard's shared snapshot can
     // surface it between polls even when the most recent poll was 429/error.
-    let mut last_sample: Option<(crate::api::usage::UsageSnapshot, chrono::DateTime<chrono::Utc>)> = None;
+    let mut last_sample: Option<(
+        crate::api::usage::UsageSnapshot,
+        chrono::DateTime<chrono::Utc>,
+    )> = None;
     // Starts as Initial; written to the shared snapshot immediately so the
     // dashboard can show "fetching…" before the first poll completes.
     let mut last_status = LastStatus::Initial;
@@ -111,7 +114,10 @@ fn polling_loop(
             Ok(snap) => {
                 last_sample = Some((snap.clone(), chrono::Utc::now()));
                 last_status = LastStatus::Ok;
-                PollEvent::Ok { snap, calib: Box::new(calib.clone()) }
+                PollEvent::Ok {
+                    snap,
+                    calib: Box::new(calib.clone()),
+                }
             }
             Err(FetchError::RateLimited) => {
                 last_status = LastStatus::RateLimited;
@@ -139,7 +145,9 @@ fn polling_loop(
         };
         match shared.write() {
             Ok(mut g) => *g = snapshot,
-            Err(e) => tracing::warn!(error = ?e, "SharedSnapshot lock poisoned, dashboard data stale"),
+            Err(e) => {
+                tracing::warn!(error = ?e, "SharedSnapshot lock poisoned, dashboard data stale")
+            }
         }
 
         let _ = tx.send(event);
@@ -197,7 +205,15 @@ fn compute_calibration_with_turns() -> (PollCalibration, Arc<Vec<Turn>>) {
         "calibration computed"
     );
 
-    (PollCalibration { caps, live, hourly_5h, hourly_week }, turns_arc)
+    (
+        PollCalibration {
+            caps,
+            live,
+            hourly_5h,
+            hourly_week,
+        },
+        turns_arc,
+    )
 }
 
 fn sleep_interruptible(shutdown: &Arc<AtomicBool>, fetch_at: Instant, interval: Duration) {

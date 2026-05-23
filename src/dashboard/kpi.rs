@@ -5,10 +5,30 @@ use egui::{Color32, Ui};
 
 pub fn render(ui: &mut Ui, kpis: &DashboardKpis, caps_available: bool) {
     ui.columns(4, |cols| {
-        kpi_share(&mut cols[0], "Peak 5h share", kpis.peak_5h_share, caps_available);
-        kpi_share(&mut cols[1], "Peak weekly share", kpis.peak_week_share, caps_available);
-        kpi_total(&mut cols[2], "Total burn", kpis.total_cost_weighted, "cost-weighted");
-        kpi_rate(&mut cols[3], "Daily avg", kpis.daily_avg_cost_weighted, "/ day");
+        kpi_share(
+            &mut cols[0],
+            "Peak 5h share",
+            kpis.peak_5h_share,
+            caps_available,
+        );
+        kpi_share(
+            &mut cols[1],
+            "Peak weekly share",
+            kpis.peak_week_share,
+            caps_available,
+        );
+        kpi_total(
+            &mut cols[2],
+            "Total burn",
+            kpis.total_cost_weighted,
+            "cost-weighted",
+        );
+        kpi_rate(
+            &mut cols[3],
+            "Daily avg",
+            kpis.daily_avg_cost_weighted,
+            "/ day",
+        );
     });
 }
 
@@ -17,10 +37,8 @@ fn kpi_share(ui: &mut Ui, label: &str, share: f64, caps_available: bool) {
     if caps_available {
         ui.label(egui::RichText::new(format!("{}%", (share * 100.0).round() as i64)).size(22.0));
         let pct = share.clamp(0.0, 1.0);
-        let (rect, _) = ui.allocate_exact_size(
-            egui::vec2(ui.available_width(), 4.0),
-            egui::Sense::hover(),
-        );
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 4.0), egui::Sense::hover());
         let painter = ui.painter();
         painter.rect_filled(rect, 1.0, Color32::from_gray(60));
         let mut fill_rect = rect;
@@ -28,10 +46,8 @@ fn kpi_share(ui: &mut Ui, label: &str, share: f64, caps_available: bool) {
         painter.rect_filled(fill_rect, 1.0, Color32::from_rgb(79, 140, 255));
     } else {
         ui.label(egui::RichText::new("—").size(22.0).color(Color32::GRAY));
-        let (rect, _) = ui.allocate_exact_size(
-            egui::vec2(ui.available_width(), 4.0),
-            egui::Sense::hover(),
-        );
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 4.0), egui::Sense::hover());
         ui.painter().rect_filled(rect, 1.0, Color32::from_gray(40));
     }
 }

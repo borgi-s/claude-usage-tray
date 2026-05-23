@@ -51,9 +51,11 @@ pub fn render(ui: &mut Ui, snap: &AppSnapshot, range: &mut Range) {
         .show_x(true)
         .show_y(true)
         .y_axis_label("cost-weighted")
-        .x_axis_formatter(|mark: egui_plot::GridMark, _range: &std::ops::RangeInclusive<f64>| {
-            crate::dashboard::axis::format_x_tick(mark.value)
-        })
+        .x_axis_formatter(
+            |mark: egui_plot::GridMark, _range: &std::ops::RangeInclusive<f64>| {
+                crate::dashboard::axis::format_x_tick(mark.value)
+            },
+        )
         .show(ui, |plot_ui| {
             plot_ui.bar_chart(BarChart::new(bars).color(COLOR_BAR));
         });

@@ -8,7 +8,10 @@ fn weekend_band_starts_saturday_0000_local_ends_monday_0000() {
     let range_start = Utc.with_ymd_and_hms(2026, 5, 20, 0, 0, 0).unwrap();
     let range_end = Utc.with_ymd_and_hms(2026, 5, 27, 0, 0, 0).unwrap();
     let bands = calendar_bands(range_start, range_end);
-    let weekends: Vec<_> = bands.iter().filter(|(_, _, k)| *k == BandKind::Weekend).collect();
+    let weekends: Vec<_> = bands
+        .iter()
+        .filter(|(_, _, k)| *k == BandKind::Weekend)
+        .collect();
     assert_eq!(weekends.len(), 1);
     let (s, e, _) = weekends[0];
     assert_eq!(s, &Utc.with_ymd_and_hms(2026, 5, 22, 22, 0, 0).unwrap());
@@ -22,7 +25,10 @@ fn night_bands_one_per_calendar_day_in_range() {
     let range_start = Utc.with_ymd_and_hms(2026, 5, 18, 0, 0, 0).unwrap();
     let range_end = Utc.with_ymd_and_hms(2026, 5, 21, 0, 0, 0).unwrap();
     let bands = calendar_bands(range_start, range_end);
-    let nights: Vec<_> = bands.iter().filter(|(_, _, k)| *k == BandKind::Night).collect();
+    let nights: Vec<_> = bands
+        .iter()
+        .filter(|(_, _, k)| *k == BandKind::Night)
+        .collect();
     assert_eq!(nights.len(), 3);
 }
 

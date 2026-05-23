@@ -55,16 +55,22 @@ pub fn render(ui: &mut Ui, snap: &AppSnapshot, range: &mut Range) {
         segments.last_mut().unwrap().push([x(w.ts), pct]);
     }
 
-    let y_label = if cap_week.is_some() { "% of cap" } else { "output tokens" };
+    let y_label = if cap_week.is_some() {
+        "% of cap"
+    } else {
+        "output tokens"
+    };
 
     Plot::new("chart_weekly")
         .height(280.0)
         .show_x(true)
         .show_y(true)
         .y_axis_label(y_label)
-        .x_axis_formatter(|mark: egui_plot::GridMark, _range: &std::ops::RangeInclusive<f64>| {
-            crate::dashboard::axis::format_x_tick(mark.value)
-        })
+        .x_axis_formatter(
+            |mark: egui_plot::GridMark, _range: &std::ops::RangeInclusive<f64>| {
+                crate::dashboard::axis::format_x_tick(mark.value)
+            },
+        )
         .show(ui, |plot_ui| {
             for (s, e, _) in calendar_bands(x_start, x_end) {
                 plot_ui.polygon(

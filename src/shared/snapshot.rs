@@ -47,7 +47,7 @@ use crate::calibration::anchors::{five_hour_burn_at, weekly_burn_at};
 pub fn compute_kpis(turns: &[Turn], caps: &DerivedCaps) -> DashboardKpis {
     let total_cw: f64 = turns.iter().map(cost_weighted).sum();
     let daily_avg = if turns.len() < 2 {
-        total_cw  // sub-day data: report total as daily avg
+        total_cw // sub-day data: report total as daily avg
     } else {
         let first = turns.first().unwrap().ts;
         let last = turns.last().unwrap().ts;
@@ -65,8 +65,11 @@ pub fn compute_kpis(turns: &[Turn], caps: &DerivedCaps) -> DashboardKpis {
 /// Max cumulative-share across any 5h window, or 0.0 if cap_5h is None.
 fn peak_5h_share(turns: &[Turn], caps: &DerivedCaps) -> f64 {
     let Some(cap) = caps.cap_5h else { return 0.0 };
-    if cap <= 0.0 { return 0.0; }
-    turns.iter()
+    if cap <= 0.0 {
+        return 0.0;
+    }
+    turns
+        .iter()
         .map(|t| five_hour_burn_at(turns, t.ts) as f64 / cap)
         .fold(0.0_f64, f64::max)
 }
@@ -74,8 +77,11 @@ fn peak_5h_share(turns: &[Turn], caps: &DerivedCaps) -> f64 {
 /// Max cumulative-share across any weekly window, or 0.0 if cap_week is None.
 fn peak_week_share(turns: &[Turn], caps: &DerivedCaps) -> f64 {
     let Some(cap) = caps.cap_week else { return 0.0 };
-    if cap <= 0.0 { return 0.0; }
-    turns.iter()
+    if cap <= 0.0 {
+        return 0.0;
+    }
+    turns
+        .iter()
         .map(|t| weekly_burn_at(turns, t.ts) as f64 / cap)
         .fold(0.0_f64, f64::max)
 }
@@ -130,9 +136,14 @@ mod tests {
             turn_at(utc(2026, 5, 24, 10, 0), 100),
             turn_at(utc(2026, 5, 24, 11, 0), 200),
             turn_at(utc(2026, 5, 24, 12, 0), 300),
-            turn_at(utc(2026, 5, 24, 18, 0), 100),  // 6h gap → new window
+            turn_at(utc(2026, 5, 24, 18, 0), 100), // 6h gap → new window
         ];
-        let caps = DerivedCaps { cap_5h: Some(1000.0), cap_week: None, n_anchors_5h: 1, n_anchors_week: 0 };
+        let caps = DerivedCaps {
+            cap_5h: Some(1000.0),
+            cap_week: None,
+            n_anchors_5h: 1,
+            n_anchors_week: 0,
+        };
         let k = compute_kpis(&turns, &caps);
         assert!((k.peak_5h_share - 0.6).abs() < 0.001);
     }
@@ -140,7 +151,7 @@ mod tests {
     #[test]
     fn compute_kpis_peak_share_zero_when_cap_none() {
         let turns = vec![turn_at(utc(2026, 5, 24, 10, 0), 100)];
-        let caps = DerivedCaps::default();  // both caps None
+        let caps = DerivedCaps::default(); // both caps None
         let k = compute_kpis(&turns, &caps);
         assert_eq!(k.peak_5h_share, 0.0);
         assert_eq!(k.peak_week_share, 0.0);
@@ -158,12 +169,15 @@ mod tests {
             turn_at(utc(2026, 5, 25, 10, 0), 1),
         ];
         // Patch input/cache_create/cache_read = 1 for each.
-        let turns: Vec<Turn> = turns_raw.into_iter().map(|mut t| {
-            t.input_tokens = 1;
-            t.cache_creation_input_tokens = 1;
-            t.cache_read_input_tokens = 1;
-            t
-        }).collect();
+        let turns: Vec<Turn> = turns_raw
+            .into_iter()
+            .map(|mut t| {
+                t.input_tokens = 1;
+                t.cache_creation_input_tokens = 1;
+                t.cache_read_input_tokens = 1;
+                t
+            })
+            .collect();
         let caps = DerivedCaps::default();
         let k = compute_kpis(&turns, &caps);
         // total = 4 * 7.35 = 29.4

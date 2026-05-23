@@ -52,7 +52,14 @@ pub fn run(interval_secs: u64) -> Result<()> {
     render_and_store_initial_icon(hwnd, &initial_tooltip)?;
 
     let send_hwnd = poller::SendHwnd(hwnd);
-    let poll_handle = poller::spawn(creds, interval_secs, shutdown.clone(), send_hwnd, tx, shared.clone());
+    let poll_handle = poller::spawn(
+        creds,
+        interval_secs,
+        shutdown.clone(),
+        send_hwnd,
+        tx,
+        shared.clone(),
+    );
 
     // Run the message loop until WM_QUIT.
     window::message_loop();
