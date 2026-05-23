@@ -230,8 +230,12 @@ fn drain_and_redraw(hwnd: HWND, state: &mut TrayState) {
         Err(e) => {
             tracing::warn!(error = %e, "IconRenderer::render failed, keeping previous icon");
             // Still refresh the tooltip — text-only update.
-            let tooltip =
-                format_tooltip(&state.last_status, state.last_sample.as_ref(), Utc::now());
+            let tooltip = format_tooltip(
+                &state.last_status,
+                state.last_sample.as_ref(),
+                state.last_local_util.as_ref(),
+                Utc::now(),
+            );
             if let Some(current) = state.current_hicon {
                 icon::modify(hwnd, WM_APP_TRAYICON, current, &tooltip);
             }
@@ -239,7 +243,12 @@ fn drain_and_redraw(hwnd: HWND, state: &mut TrayState) {
         }
     };
 
-    let tooltip = format_tooltip(&state.last_status, state.last_sample.as_ref(), Utc::now());
+    let tooltip = format_tooltip(
+        &state.last_status,
+        state.last_sample.as_ref(),
+        state.last_local_util.as_ref(),
+        Utc::now(),
+    );
     icon::modify(hwnd, WM_APP_TRAYICON, next_hicon, &tooltip);
 
     // Swap in the new HICON. Destroy the previous one (if any) only AFTER NIM_MODIFY
@@ -257,6 +266,7 @@ fn drain_and_redraw(hwnd: HWND, state: &mut TrayState) {
 pub(crate) fn format_tooltip(
     status: &LastStatus,
     last_sample: Option<&(UsageSnapshot, DateTime<Utc>)>,
+    local: Option<&LiveUtil>,
     now: DateTime<Utc>,
 ) -> Vec<u16> {
     let text = match (last_sample, status) {
@@ -291,10 +301,24 @@ pub(crate) fn format_tooltip(
                 ),
                 LastStatus::Error(msg) => format!("(error: {})", short(msg)),
             };
-            format!("5h: {h5}   7d: {d7}\nupdated {updated} {footer}")
+            let local_line = format_local_line(local);
+            format!("5h: {h5}   7d: {d7}\n{local_line}\nupdated {updated} {footer}")
         }
     };
     encode_utf16(&text)
+}
+
+fn format_local_line(local: Option<&LiveUtil>) -> String {
+    match local {
+        None => "local: (uncalibrated)".to_string(),
+        Some(l) => {
+            let f = |u: Option<f64>| match u {
+                Some(v) => format!("{}%", (v * 100.0).round() as i64),
+                None => "(uncalibrated)".to_string(),
+            };
+            format!("local 5h: {}   local 7d: {}", f(l.util_5h), f(l.util_week))
+        }
+    }
 }
 
 fn short(msg: &str) -> String {
@@ -349,4 +373,38 @@ pub fn current_hinstance() -> Result<HMODULE> {
     let hmod = unsafe { GetModuleHandleW(PCWSTR::null()) }
         .map_err(|e| anyhow!("GetModuleHandleW failed: {e}"))?;
     Ok(hmod)
+}
+
+#[cfg(test)]
+mod tooltip_tests {
+    use super::*;
+
+    #[test]
+    fn format_local_line_none_says_uncalibrated() {
+        assert_eq!(format_local_line(None), "local: (uncalibrated)");
+    }
+
+    #[test]
+    fn format_local_line_both_caps_prints_both_pcts() {
+        let live = LiveUtil {
+            util_5h: Some(0.54),
+            util_week: Some(0.40),
+        };
+        assert_eq!(
+            format_local_line(Some(&live)),
+            "local 5h: 54%   local 7d: 40%"
+        );
+    }
+
+    #[test]
+    fn format_local_line_partial_caps_prints_uncalibrated_per_window() {
+        let live = LiveUtil {
+            util_5h: Some(0.54),
+            util_week: None,
+        };
+        assert_eq!(
+            format_local_line(Some(&live)),
+            "local 5h: 54%   local 7d: (uncalibrated)"
+        );
+    }
 }
