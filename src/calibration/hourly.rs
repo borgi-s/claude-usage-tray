@@ -86,6 +86,65 @@ pub fn smooth_rolling_circular(raw: &[Option<f64>; 24], window: usize) -> [Optio
     out
 }
 
+/// Linear-interpolate `None` bins across the array, with circular wrap.
+/// If all bins are `None`, returns `[0.0; 24]`.
+pub fn interpolate_empty_circular(smoothed: &[Option<f64>; 24]) -> [f64; 24] {
+    let n: isize = 24;
+    let any = smoothed.iter().any(|v| v.is_some());
+    if !any {
+        return [0.0; 24];
+    }
+    let mut out = [0.0f64; 24];
+    for h in 0..24usize {
+        if let Some(v) = smoothed[h] {
+            out[h] = v;
+            continue;
+        }
+        // Search backward for nearest non-None.
+        let mut prev: Option<(usize, isize)> = None;
+        for off in 1..=n {
+            let j = ((h as isize - off) % n + n) % n;
+            if smoothed[j as usize].is_some() {
+                prev = Some((j as usize, off));
+                break;
+            }
+        }
+        // Search forward for nearest non-None.
+        let mut next: Option<(usize, isize)> = None;
+        for off in 1..=n {
+            let j = ((h as isize + off) % n + n) % n;
+            if smoothed[j as usize].is_some() {
+                next = Some((j as usize, off));
+                break;
+            }
+        }
+        out[h] = match (prev, next) {
+            (Some((pi, pd)), Some((ni, nd))) => {
+                let pv = smoothed[pi].unwrap();
+                let nv = smoothed[ni].unwrap();
+                let total = (pd + nd) as f64;
+                pv * (nd as f64 / total) + nv * (pd as f64 / total)
+            }
+            (Some((pi, _)), None) => smoothed[pi].unwrap(),
+            (None, Some((ni, _))) => smoothed[ni].unwrap(),
+            (None, None) => 0.0,
+        };
+    }
+    out
+}
+
+/// Public entry point: per-hour median → 3-bin circular smoothing → interpolation.
+/// Returns `[0.0; 24]` if no valid anchors exist.
+pub fn hour_of_day_cap_series(
+    log: &[CalibrationSample],
+    turns: &[Turn],
+    kind: WindowKind,
+) -> [f64; 24] {
+    let raw = per_hour_medians(log, turns, kind);
+    let smoothed = smooth_rolling_circular(&raw, 3);
+    interpolate_empty_circular(&smoothed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,6 +237,31 @@ mod tests {
         assert_eq!(out[12], Some(125.0));
         // At 13: only 150 contributes from neighbor at 12. median(150) = 150.
         assert_eq!(out[13], Some(150.0));
+    }
+
+    #[test]
+    fn interpolate_empty_circular_all_none_returns_zeros() {
+        let raw: [Option<f64>; 24] = [None; 24];
+        let out = interpolate_empty_circular(&raw);
+        assert_eq!(out, [0.0; 24]);
+    }
+
+    #[test]
+    fn interpolate_empty_circular_fills_gaps_linearly() {
+        let mut raw: [Option<f64>; 24] = [None; 24];
+        raw[0] = Some(100.0);
+        raw[6] = Some(700.0);
+        let out = interpolate_empty_circular(&raw);
+        // Between bin 0 (100) and bin 6 (700), bin 3 should be exactly halfway = 400.
+        assert_eq!(out[0], 100.0);
+        assert_eq!(out[6], 700.0);
+        assert!((out[3] - 400.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn hour_of_day_cap_series_empty_returns_zeros() {
+        let out = hour_of_day_cap_series(&[], &[], WindowKind::FiveHour);
+        assert_eq!(out, [0.0; 24]);
     }
 }
 
