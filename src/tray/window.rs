@@ -1,6 +1,6 @@
 use crate::api::usage::UsageSnapshot;
 use crate::render::{format_duration, LastStatus};
-use crate::tray::icon::{self, IconSet};
+use crate::tray::icon::{self, IconRenderer};
 use crate::tray::poller::{PollEvent, WM_APP_POLL};
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Duration as ChronoDuration, Local, Utc};
@@ -36,9 +36,21 @@ const CLASS_NAME: &[u16] = &[
 pub struct TrayState {
     pub last_sample: Option<(UsageSnapshot, DateTime<Utc>)>,
     pub last_status: LastStatus,
-    pub icons: IconSet,
+    pub renderer: IconRenderer,
+    pub current_hicon: Option<HICON>,
     pub rx: Receiver<PollEvent>,
     pub shutdown: Arc<AtomicBool>,
+}
+
+impl Drop for TrayState {
+    fn drop(&mut self) {
+        if let Some(h) = self.current_hicon.take() {
+            // SAFETY: we own this handle (set by drain_and_redraw / the initial render).
+            unsafe {
+                let _ = windows::Win32::UI::WindowsAndMessaging::DestroyIcon(h);
+            }
+        }
+    }
 }
 
 /// Register the class (idempotent — second call returns ALREADY_EXISTS, fine).
@@ -201,9 +213,33 @@ fn drain_and_redraw(hwnd: HWND, state: &mut TrayState) {
     }
 
     let sample = state.last_sample.as_ref().map(|(s, _)| s);
-    let hicon: HICON = state.icons.for_state(&state.last_status, sample);
+
+    // Render a fresh HICON for the current state.
+    let next_hicon = match state.renderer.render(&state.last_status, sample) {
+        Ok(h) => h,
+        Err(e) => {
+            tracing::warn!(error = %e, "IconRenderer::render failed, keeping previous icon");
+            // Still refresh the tooltip — text-only update.
+            let tooltip = format_tooltip(&state.last_status, state.last_sample.as_ref(), Utc::now());
+            if let Some(current) = state.current_hicon {
+                icon::modify(hwnd, WM_APP_TRAYICON, current, &tooltip);
+            }
+            return;
+        }
+    };
+
     let tooltip = format_tooltip(&state.last_status, state.last_sample.as_ref(), Utc::now());
-    icon::modify(hwnd, WM_APP_TRAYICON, hicon, &tooltip);
+    icon::modify(hwnd, WM_APP_TRAYICON, next_hicon, &tooltip);
+
+    // Swap in the new HICON. Destroy the previous one (if any) only AFTER NIM_MODIFY
+    // has been called with the new one — otherwise the shell might briefly point at a freed handle.
+    if let Some(prev) = state.current_hicon.replace(next_hicon) {
+        // SAFETY: previous handle we owned; no longer referenced by the shell after the
+        // NIM_MODIFY call above.
+        unsafe {
+            let _ = windows::Win32::UI::WindowsAndMessaging::DestroyIcon(prev);
+        }
+    }
 }
 
 /// Format the tooltip text (UTF-16, null-terminated, <=127 chars per szTip cap).

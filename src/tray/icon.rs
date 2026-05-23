@@ -19,6 +19,8 @@ const PIXEL_FORMAT_32BPP_ARGB: i32 = 0x0026_200A;
 
 /// Four pre-rendered solid-color tray icons, allocated once at startup and
 /// reused across renders. Released via `Drop` (calls `DestroyIcon` on each).
+/// NOTE: unused since Task 6 wired in IconRenderer; will be removed in Task 8.
+#[allow(dead_code)]
 pub struct IconSet {
     pub gray: HICON,
     pub green: HICON,
@@ -79,6 +81,8 @@ impl Drop for IconSet {
 
 /// Build a 16x16 solid-color HICON. RGB inputs are reordered to the BGRA byte
 /// order that CreateIcon expects for 32bpp bitmaps.
+/// NOTE: unused since Task 6; will be removed in Task 8.
+#[allow(dead_code)]
 fn solid_icon(hinst: HMODULE, r: u8, g: u8, b: u8) -> Result<HICON> {
     let mut color = [0u8; 16 * 16 * 4];
     let mut i = 0;
