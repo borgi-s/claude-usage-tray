@@ -22,3 +22,12 @@ pub const MIN_ANCHOR_UTIL: f64 = 0.95;
 /// Maximum API utilization for a sample to be considered an anchor.
 /// Allows a small overshoot above 1.0 since the API can briefly report >100%.
 pub const MAX_ANCHOR_UTIL: f64 = 1.01;
+
+/// Per-token-type weights for the "cost-weighted" KPI/chart aggregate. These
+/// mirror the Python project's config.COST_WEIGHTS — they're heuristic, not
+/// authoritative Anthropic pricing, and only used for the dashboard's spend
+/// view (NOT for cap calibration, which uses output_tokens only — Stage 5).
+pub const COST_WEIGHT_INPUT: f64 = 1.0;
+pub const COST_WEIGHT_CACHE_CREATION: f64 = 1.25;
+pub const COST_WEIGHT_CACHE_READ: f64 = 0.1;
+pub const COST_WEIGHT_OUTPUT: f64 = 5.0;
