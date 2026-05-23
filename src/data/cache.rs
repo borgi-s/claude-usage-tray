@@ -165,3 +165,14 @@ fn write_manifest(app_dir: &Path, mtimes: &HashMap<PathBuf, i64>) -> Result<(), 
     std::fs::rename(&tmp_path, &final_path)?;
     Ok(())
 }
+
+/// Convenience wrapper: refreshes against `~/.claude/projects/` and writes the
+/// cache under `~/.claude-usage-tray/`. Used by the polling thread.
+pub fn refresh() -> Result<Vec<Turn>, CacheError> {
+    let projects_root = dirs::home_dir()
+        .ok_or_else(|| anyhow::anyhow!("could not determine home directory"))?
+        .join(".claude")
+        .join("projects");
+    let app_dir = crate::paths::app_dir()?;
+    refresh_at(&projects_root, &app_dir)
+}
