@@ -3,6 +3,7 @@
 pub mod app;
 pub mod bands;
 pub mod range;
+pub mod series;
 
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -45,10 +46,7 @@ pub fn find_hwnd_by_title(target: &str) -> Option<HWND> {
     // SAFETY: state lives for the duration of EnumWindows; the callback is
     // invoked synchronously from this thread; we cast a &mut to LPARAM and back.
     unsafe {
-        let _ = EnumWindows(
-            Some(enum_proc),
-            LPARAM(&mut state as *mut _ as isize),
-        );
+        let _ = EnumWindows(Some(enum_proc), LPARAM(&mut state as *mut _ as isize));
     }
     state.result
 }
@@ -113,5 +111,8 @@ pub fn launch(shared: SharedSnapshot) -> DashboardHandle {
         // run_native returned → window closed → thread is about to exit.
     });
 
-    DashboardHandle { hwnd: hwnd_slot, join }
+    DashboardHandle {
+        hwnd: hwnd_slot,
+        join,
+    }
 }
