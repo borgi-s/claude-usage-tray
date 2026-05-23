@@ -26,11 +26,15 @@ pub struct PollCalibration {
 
 /// One outcome of a single poll attempt. Sent from the polling thread to the
 /// UI thread via mpsc.
+///
+/// `calib` is boxed because `PollCalibration` (two 24-element f64 arrays) is
+/// ~520 bytes, much larger than the other variants. Boxing keeps `PollEvent`
+/// channel sends to pointer-size for the common rate-limit / error cases.
 #[derive(Debug)]
 pub enum PollEvent {
     Ok {
         snap: UsageSnapshot,
-        calib: PollCalibration,
+        calib: Box<PollCalibration>,
     },
     RateLimited,
     Error(String),
@@ -84,7 +88,10 @@ fn polling_loop(
 
         // API fetch.
         let event = match poll_once(&creds) {
-            Ok(snap) => PollEvent::Ok { snap, calib },
+            Ok(snap) => PollEvent::Ok {
+                snap,
+                calib: Box::new(calib),
+            },
             Err(FetchError::RateLimited) => PollEvent::RateLimited,
             Err(other) => PollEvent::Error(other.to_string()),
         };

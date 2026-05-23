@@ -238,14 +238,16 @@ mod tests {
         touch(root, "sess-a.jsonl");
         touch(root, "proj1/sess-b.jsonl");
         touch(root, "proj1/subagents/agent-1.jsonl");
-        touch(root, "proj1/notes.txt");    // should be filtered
+        touch(root, "proj1/notes.txt"); // should be filtered
         touch(root, "proj2/sub/sub/c.jsonl");
 
         let mut found: Vec<_> = walk_jsonl(root).collect();
         found.sort();
 
         assert_eq!(found.len(), 4);
-        assert!(found.iter().all(|p| p.extension().and_then(|s| s.to_str()) == Some("jsonl")));
+        assert!(found
+            .iter()
+            .all(|p| p.extension().and_then(|s| s.to_str()) == Some("jsonl")));
     }
 
     #[test]

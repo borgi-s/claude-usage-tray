@@ -19,9 +19,7 @@ pub fn live_util_at(turns: &[Turn], caps: &DerivedCaps, now: DateTime<Utc>) -> L
         util_5h: caps
             .cap_5h
             .map(|c| five_hour_burn_at(turns, now) as f64 / c),
-        util_week: caps
-            .cap_week
-            .map(|c| weekly_burn_at(turns, now) as f64 / c),
+        util_week: caps.cap_week.map(|c| weekly_burn_at(turns, now) as f64 / c),
     }
 }
 
@@ -73,7 +71,10 @@ mod tests {
             n_anchors_week: 1,
         };
         let now = Utc.with_ymd_and_hms(2026, 5, 24, 12, 0, 0).unwrap();
-        let turns = vec![turn(Utc.with_ymd_and_hms(2026, 5, 24, 11, 0, 0).unwrap(), 250)];
+        let turns = vec![turn(
+            Utc.with_ymd_and_hms(2026, 5, 24, 11, 0, 0).unwrap(),
+            250,
+        )];
         let live = live_util_at(&turns, &caps, now);
         assert_eq!(live.util_5h, Some(0.25));
         // Weekly window includes the same turn.

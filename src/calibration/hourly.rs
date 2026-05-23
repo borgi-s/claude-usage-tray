@@ -264,4 +264,3 @@ mod tests {
         assert_eq!(out, [0.0; 24]);
     }
 }
-

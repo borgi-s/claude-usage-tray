@@ -1,7 +1,7 @@
 //! Median-of-anchors cap derivation.
 
-use chrono::{DateTime, Utc};
 use crate::data::parser::Turn;
+use chrono::{DateTime, Utc};
 
 /// Caps derived from the latest calibration log + cache.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -19,7 +19,9 @@ use chrono_tz::Tz;
 /// Returns the most-recent weekly-reset moment (Sun 07:00 local) at or before
 /// `anchor_ts`, expressed in UTC.
 pub fn last_weekly_reset(anchor_ts: DateTime<Utc>) -> DateTime<Utc> {
-    let tz: Tz = config::LOCAL_TZ.parse().expect("LOCAL_TZ must be a valid IANA name");
+    let tz: Tz = config::LOCAL_TZ
+        .parse()
+        .expect("LOCAL_TZ must be a valid IANA name");
     let local = anchor_ts.with_timezone(&tz);
 
     // days_back: how many days from `local`'s weekday back to Sunday (0..=6).
@@ -114,7 +116,7 @@ pub fn global_cap_from_anchors(
             WindowKind::Weekly => s.seven_day_util,
         };
         let Some(util) = util_opt else { continue };
-        if util < config::MIN_ANCHOR_UTIL || util > config::MAX_ANCHOR_UTIL {
+        if !(config::MIN_ANCHOR_UTIL..=config::MAX_ANCHOR_UTIL).contains(&util) {
             continue;
         }
         let burn = match kind {
@@ -157,8 +159,8 @@ fn _silence_imports(_: Weekday) {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
     use crate::data::parser::Turn;
+    use chrono::TimeZone;
     use std::path::PathBuf;
 
     fn utc(y: i32, m: u32, d: u32, h: u32, mi: u32) -> DateTime<Utc> {
@@ -199,7 +201,7 @@ mod tests {
         // First turn at 04:00, big gap, then a session 10:00-12:00 totalling 500.
         // Anchor at 12:00 should include only the 10:00+ turns.
         let turns = vec![
-            turn(utc(2026, 5, 24, 4, 0), 999),   // pre-gap — should be excluded
+            turn(utc(2026, 5, 24, 4, 0), 999), // pre-gap — should be excluded
             turn(utc(2026, 5, 24, 10, 0), 100),
             turn(utc(2026, 5, 24, 11, 0), 200),
             turn(utc(2026, 5, 24, 12, 0), 200),
@@ -214,7 +216,7 @@ mod tests {
         let turns = vec![
             turn(utc(2026, 5, 24, 8, 0), 100),
             turn(utc(2026, 5, 24, 10, 0), 200),
-            turn(utc(2026, 5, 24, 12, 30), 300),  // 4.5h after 08:00 → new window starts here
+            turn(utc(2026, 5, 24, 12, 30), 300), // 4.5h after 08:00 → new window starts here
             turn(utc(2026, 5, 24, 13, 0), 400),
         ];
         let anchor = utc(2026, 5, 24, 13, 0);
@@ -233,14 +235,14 @@ mod tests {
 
     #[test]
     fn last_weekly_reset_when_anchor_is_sunday_after_0700_picks_today() {
-        let anchor = utc(2026, 5, 24, 8, 0);  // Sun 10:00 local CEST
+        let anchor = utc(2026, 5, 24, 8, 0); // Sun 10:00 local CEST
         let reset = last_weekly_reset(anchor);
         assert_eq!(reset, utc(2026, 5, 24, 5, 0));
     }
 
     #[test]
     fn last_weekly_reset_when_anchor_is_sunday_before_0700_picks_prior_sunday() {
-        let anchor = utc(2026, 5, 24, 4, 0);  // Sun 06:00 local CEST
+        let anchor = utc(2026, 5, 24, 4, 0); // Sun 06:00 local CEST
         let reset = last_weekly_reset(anchor);
         // Prior Sun: 2026-05-17 05:00 UTC.
         assert_eq!(reset, utc(2026, 5, 17, 5, 0));
@@ -248,7 +250,7 @@ mod tests {
 
     #[test]
     fn last_weekly_reset_handles_saturday() {
-        let anchor = utc(2026, 5, 23, 10, 0);  // Sat 12:00 local
+        let anchor = utc(2026, 5, 23, 10, 0); // Sat 12:00 local
         let reset = last_weekly_reset(anchor);
         // Prior Sun = 2026-05-17 05:00 UTC.
         assert_eq!(reset, utc(2026, 5, 17, 5, 0));
@@ -257,12 +259,12 @@ mod tests {
     #[test]
     fn weekly_burn_at_sums_since_last_reset() {
         let turns = vec![
-            turn(utc(2026, 5, 17, 4, 0), 999),   // before Sun 05:00 UTC reset — excluded
-            turn(utc(2026, 5, 17, 6, 0), 100),   // after reset
+            turn(utc(2026, 5, 17, 4, 0), 999), // before Sun 05:00 UTC reset — excluded
+            turn(utc(2026, 5, 17, 6, 0), 100), // after reset
             turn(utc(2026, 5, 19, 12, 0), 200),
             turn(utc(2026, 5, 23, 8, 0), 300),
         ];
-        let anchor = utc(2026, 5, 23, 12, 0);  // Sat — last reset was Sun 17 05:00 UTC
+        let anchor = utc(2026, 5, 23, 12, 0); // Sat — last reset was Sun 17 05:00 UTC
         assert_eq!(weekly_burn_at(&turns, anchor), 600);
     }
 
@@ -270,15 +272,15 @@ mod tests {
     fn weekly_burn_at_after_reset_excludes_prior_week() {
         let turns = vec![
             turn(utc(2026, 5, 23, 12, 0), 500),
-            turn(utc(2026, 5, 24, 6, 0), 100),  // after Sun 05:00 UTC reset
+            turn(utc(2026, 5, 24, 6, 0), 100), // after Sun 05:00 UTC reset
         ];
         let anchor = utc(2026, 5, 24, 8, 0);
         // Only the 100 token row falls within the new week.
         assert_eq!(weekly_burn_at(&turns, anchor), 100);
     }
 
-    use crate::log::calibration::CalibrationSample;
     use crate::calibration::WindowKind;
+    use crate::log::calibration::CalibrationSample;
 
     fn sample(ts: DateTime<Utc>, util_5h: f64, util_7d: f64) -> CalibrationSample {
         CalibrationSample {
@@ -325,11 +327,11 @@ mod tests {
             sample(utc(2026, 5, 24, 22, 0), 1.00, 0.5),
         ];
         let turns = vec![
-            turn(utc(2026, 5, 24, 9, 30), 100),    // anchor 1: burn 100, util 1 → cap 100
+            turn(utc(2026, 5, 24, 9, 30), 100), // anchor 1: burn 100, util 1 → cap 100
             // Anchor 1's window ends, anchor 2 starts a new window. 6h gap > 4.5h.
-            turn(utc(2026, 5, 24, 15, 30), 200),   // anchor 2: burn 200, util 1 → cap 200
+            turn(utc(2026, 5, 24, 15, 30), 200), // anchor 2: burn 200, util 1 → cap 200
             // Anchor 2's window ends, anchor 3 starts a new window.
-            turn(utc(2026, 5, 24, 21, 30), 300),   // anchor 3: burn 300, util 1 → cap 300
+            turn(utc(2026, 5, 24, 21, 30), 300), // anchor 3: burn 300, util 1 → cap 300
         ];
         let (cap, n) = global_cap_from_anchors(&log, &turns, WindowKind::FiveHour);
         assert_eq!(cap, Some(200.0));
