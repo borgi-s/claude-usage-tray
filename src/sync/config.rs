@@ -37,7 +37,7 @@ fn from_env_inner() -> Result<Option<SyncConfig>> {
         std::env::var("SUPABASE_SERVICE_ROLE_KEY").ok(),
         std::env::var("SUPABASE_USER_PREFIX").ok(),
     ) {
-        (Some(u), Some(k), Some(p)) if !u.is_empty() && !k.is_empty() => (u, k, p),
+        (Some(u), Some(k), Some(p)) if !u.trim().is_empty() && !k.trim().is_empty() => (u, k, p),
         _ => return Ok(None),
     };
 
@@ -103,6 +103,21 @@ mod tests {
         std::env::set_var("SUPABASE_SERVICE_ROLE_KEY", "key123");
         std::env::set_var("SUPABASE_USER_PREFIX", "bad/prefix");
         assert!(from_env_inner().is_err());
+
+        // 5. Whitespace-only URL => Ok(None), treated as absent.
+        clear_env();
+        std::env::set_var("SUPABASE_URL", "   ");
+        std::env::set_var("SUPABASE_SERVICE_ROLE_KEY", "key123");
+        std::env::set_var("SUPABASE_USER_PREFIX", "borgi");
+        assert_eq!(from_env_inner().unwrap(), None);
+
+        // 6. Present-but-empty SUPABASE_BUCKET falls back to the default.
+        clear_env();
+        std::env::set_var("SUPABASE_URL", "https://x.supabase.co");
+        std::env::set_var("SUPABASE_SERVICE_ROLE_KEY", "key123");
+        std::env::set_var("SUPABASE_USER_PREFIX", "borgi");
+        std::env::set_var("SUPABASE_BUCKET", "");
+        assert_eq!(from_env_inner().unwrap().unwrap().bucket, "usage-tracker");
 
         clear_env();
     }
