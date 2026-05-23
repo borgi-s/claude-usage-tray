@@ -1,9 +1,12 @@
 //! Serialize in-memory/on-disk state into parquet + JSON byte buffers that the
 //! polars cloud viewer reads. Schemas mirror the Python project exactly.
 
+use crate::api::credentials::Credentials;
 use crate::data::parser::Turn;
 use crate::log::calibration::CalibrationSample;
+use crate::shared::snapshot::AppSnapshot;
 use anyhow::Result;
+use serde::Serialize;
 use arrow::array::{ArrayRef, BooleanArray, Float64Array, Int64Array, StringArray, TimestampMillisecondArray};
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
@@ -100,6 +103,57 @@ pub fn calibration_log_parquet(samples: &[CalibrationSample]) -> Result<Vec<u8>>
 
     let batch = RecordBatch::try_new(schema.clone(), columns)?;
     write_parquet(schema, &batch)
+}
+
+/// Mirrors caps.py `DerivedCaps`. Field order matches the Python dataclass.
+/// `Option::None` serializes to JSON `null`; `serde_json` always emits the key.
+#[derive(Debug, Serialize)]
+struct CapsJson {
+    max5x_5h: Option<f64>,
+    max5x_weekly: Option<f64>,
+    pro_5h: Option<f64>,
+    pro_weekly: Option<f64>,
+    sampled_at: Option<String>,
+    sample_burn_5h: Option<f64>,
+    sample_burn_7d: Option<f64>,
+    sample_util_5h: Option<f64>,
+    sample_util_7d: Option<f64>,
+    subscription_type: Option<String>,
+    resets_5h_iso: Option<String>,
+    resets_7d_iso: Option<String>,
+    rate_limit_tier: Option<String>,
+}
+
+/// Build caps.json bytes (pretty-printed, like the Python agent).
+pub fn caps_json(snapshot: &AppSnapshot, creds: &Credentials) -> Result<Vec<u8>> {
+    let (sampled_at, util_5h, util_7d, resets_5h, resets_7d) = match &snapshot.last_sample {
+        Some((usage, at)) => (
+            Some(at.to_rfc3339()),
+            usage.five_hour.as_ref().map(|b| b.utilization),
+            usage.seven_day.as_ref().map(|b| b.utilization),
+            usage.five_hour.as_ref().and_then(|b| b.resets_at).map(|d| d.to_rfc3339()),
+            usage.seven_day.as_ref().and_then(|b| b.resets_at).map(|d| d.to_rfc3339()),
+        ),
+        None => (None, None, None, None, None),
+    };
+
+    let caps = CapsJson {
+        max5x_5h: None,
+        max5x_weekly: None,
+        pro_5h: None,
+        pro_weekly: None,
+        sampled_at,
+        sample_burn_5h: None,
+        sample_burn_7d: None,
+        sample_util_5h: util_5h,
+        sample_util_7d: util_7d,
+        subscription_type: Some(creds.subscription_type.clone()),
+        resets_5h_iso: resets_5h,
+        resets_7d_iso: resets_7d,
+        rate_limit_tier: Some(creds.rate_limit_tier.clone()),
+    };
+
+    Ok(serde_json::to_vec_pretty(&caps)?)
 }
 
 /// Stream a single RecordBatch into an in-memory parquet buffer.
@@ -219,6 +273,56 @@ mod tests {
         let batch = read_back(&bytes);
         assert_eq!(batch.num_rows(), 0);
         assert_eq!(batch.schema().fields().len(), 17);
+    }
+
+    use crate::api::credentials::Credentials;
+    use crate::api::usage::{UsageBucket, UsageSnapshot};
+    use crate::shared::snapshot::AppSnapshot;
+
+    #[test]
+    fn caps_json_populates_from_snapshot_and_nulls_the_rest() {
+        let usage = UsageSnapshot {
+            five_hour: Some(UsageBucket {
+                utilization: 0.42,
+                resets_at: Some(chrono::Utc.with_ymd_and_hms(2026, 5, 23, 12, 0, 0).unwrap()),
+            }),
+            seven_day: Some(UsageBucket { utilization: 0.1, resets_at: None }),
+        };
+        let sampled = chrono::Utc.with_ymd_and_hms(2026, 5, 23, 9, 30, 0).unwrap();
+        let snapshot = AppSnapshot {
+            last_sample: Some((usage, sampled)),
+            ..Default::default()
+        };
+        let creds = Credentials {
+            access_token: "t".into(),
+            subscription_type: "pro".into(),
+            rate_limit_tier: "default".into(),
+        };
+
+        let bytes = caps_json(&snapshot, &creds).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+
+        assert_eq!(v["sample_util_5h"], 0.42);
+        assert_eq!(v["sample_util_7d"], 0.1);
+        assert_eq!(v["subscription_type"], "pro");
+        assert_eq!(v["rate_limit_tier"], "default");
+        assert_eq!(v["sampled_at"], sampled.to_rfc3339());
+        assert_eq!(v["resets_5h_iso"], "2026-05-23T12:00:00+00:00");
+        assert!(v["resets_7d_iso"].is_null());
+        assert!(v["max5x_5h"].is_null());
+        assert!(v["pro_weekly"].is_null());
+        assert!(v["sample_burn_5h"].is_null());
+        assert_eq!(v.as_object().unwrap().len(), 13);
+    }
+
+    #[test]
+    fn caps_json_handles_no_sample() {
+        let creds = Credentials { access_token: "t".into(), subscription_type: "pro".into(), rate_limit_tier: "default".into() };
+        let bytes = caps_json(&AppSnapshot::default(), &creds).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(v["sampled_at"].is_null());
+        assert!(v["sample_util_5h"].is_null());
+        assert_eq!(v["subscription_type"], "pro");
     }
 
     #[test]
