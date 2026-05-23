@@ -89,6 +89,7 @@ pub fn calibration_log_parquet(samples: &[CalibrationSample]) -> Result<Vec<u8>>
         Arc::new(Float64Array::from(samples.iter().map(|s| s.seven_day_util).collect::<Vec<Option<f64>>>())),
         null_f64(),
         null_f64(),
+        // input, cache_creation, cache_read, output — _5h block then _7d block
         null_i64(), null_i64(), null_i64(), null_i64(),
         null_i64(), null_i64(), null_i64(), null_i64(),
         Arc::new(StringArray::from_iter_values(samples.iter().map(|s| s.subscription_type.clone()))),
@@ -210,6 +211,14 @@ mod tests {
             subscription_type: "pro".into(),
             rate_limit_tier: "default".into(),
         }
+    }
+
+    #[test]
+    fn calib_log_parquet_handles_empty() {
+        let bytes = calibration_log_parquet(&[]).unwrap();
+        let batch = read_back(&bytes);
+        assert_eq!(batch.num_rows(), 0);
+        assert_eq!(batch.schema().fields().len(), 17);
     }
 
     #[test]
