@@ -1,4 +1,5 @@
 pub mod api;
+pub mod calibration;
 pub mod cli;
 pub mod config;
 pub mod data;
