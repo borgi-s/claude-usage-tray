@@ -18,7 +18,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     RegisterClassExW, SetForegroundWindow, SetWindowLongPtrW, TrackPopupMenu, TranslateMessage,
     CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, HICON, HMENU, HWND_MESSAGE, MF_STRING, MSG,
     TPM_LEFTBUTTON, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_COMMAND, WM_DESTROY,
-    WM_NCCREATE, WM_NCDESTROY, WM_RBUTTONUP, WNDCLASSEXW,
+    WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY, WM_RBUTTONUP, WNDCLASSEXW,
 };
 
 /// Custom message: shell sends this when the user interacts with the tray icon.
@@ -153,6 +153,8 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             // lparam.0 carries the underlying mouse event id.
             if lparam.0 as u32 == WM_RBUTTONUP {
                 show_context_menu(hwnd);
+            } else if lparam.0 as u32 == WM_LBUTTONUP {
+                with_state(hwnd, on_left_click);
             }
             LRESULT(0)
         }
@@ -366,6 +368,11 @@ fn show_context_menu(hwnd: HWND) {
         );
         let _ = DestroyMenu(hmenu);
     }
+}
+
+/// Handler for left-click on the tray icon. Filled in by Task 12.
+fn on_left_click(_state: &mut TrayState) {
+    tracing::info!("LMB on tray icon (no-op until Task 12)");
 }
 
 /// Resolve the process's HMODULE for use by RegisterClassExW / CreateWindowExW / CreateIcon.
