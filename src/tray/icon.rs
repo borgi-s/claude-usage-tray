@@ -3,8 +3,16 @@ use crate::render::LastStatus;
 use anyhow::{anyhow, Result};
 use windows::Win32::Foundation::{HMODULE, HWND};
 use windows::Win32::Graphics::GdiPlus::{
+    FillModeAlternate, FontStyleBold, GdipAddPathString, GdipCreateFontFamilyFromName,
+    GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill, GdipCreateStringFormat,
+    GdipDeleteBrush, GdipDeleteFontFamily, GdipDeletePath, GdipDeletePen,
+    GdipDeleteStringFormat, GdipDrawPath, GdipFillPath, GdipSetStringFormatAlign,
+    GdipSetStringFormatLineAlign, GdipSetTextRenderingHint,
     GdipCreateBitmapFromScan0, GdipCreateHICONFromBitmap, GdipDeleteGraphics, GdipDisposeImage,
-    GdipGetImageGraphicsContext, GdipGraphicsClear, GpBitmap, GpGraphics, GpImage, Status,
+    GdipGetImageGraphicsContext, GdipGraphicsClear,
+    GpBitmap, GpBrush, GpFontFamily, GpGraphics, GpImage, GpPath, GpPen, GpSolidFill,
+    GpStringFormat, RectF, Status,
+    StringAlignmentCenter, TextRenderingHintAntiAliasGridFit, UnitPixel,
 };
 use windows::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
@@ -237,6 +245,23 @@ fn percent_int(util: f64) -> u8 {
     pct as u8
 }
 
+/// UTF-16 null-terminated text for a Glyph. Returns the (string, length-in-chars) pair.
+/// The `length` is the count of meaningful UTF-16 code units (excluding the null terminator),
+/// which is what GdipAddPathString expects for its `length` parameter.
+fn glyph_to_text(glyph: Glyph) -> (Vec<u16>, i32) {
+    let s = match glyph {
+        Glyph::Digits(n) => format!("{n}"),
+        Glyph::Bang => "!".to_string(),
+        Glyph::Question => "?".to_string(),
+    };
+    // GdipAddPathString uses the `length` to know how many UTF-16 code units to render.
+    // ASCII digits, '!' and '?' are all in BMP so each char = one code unit.
+    let len = s.encode_utf16().count() as i32;
+    // Append null terminator for the PCWSTR buffer (required by GDI+).
+    let utf16: Vec<u16> = s.encode_utf16().chain(std::iter::once(0)).collect();
+    (utf16, len)
+}
+
 /// Stateless renderer that produces a fresh 16×16 HICON per call.
 /// Each render does a complete GDI+ pipeline: create bitmap → fill → convert → return HICON.
 /// Caller is responsible for `DestroyIcon` on the returned handle.
@@ -254,7 +279,7 @@ impl IconRenderer {
         status: &LastStatus,
         sample: Option<&UsageSnapshot>,
     ) -> Result<HICON> {
-        let ((r, g, b), _glyph) = compute_visual(status, sample);
+        let ((r, g, b), glyph) = compute_visual(status, sample);
 
         // 1) Create a 16x16 ARGB bitmap.
         // SAFETY: out-pointer is valid; stride 0 means "let GDI+ pick"; scan0 None means
@@ -292,7 +317,93 @@ impl IconRenderer {
             anyhow::bail!("GdipGraphicsClear failed: {s:?}");
         }
 
-        // TODO Task 7: draw the glyph here.
+        // 4a) Glyph drawing: white digits / ! / ? with 1-pixel black outline.
+        let (text, text_len) = glyph_to_text(glyph);
+
+        // Enable anti-aliased text rendering for the GraphicsPath.
+        // SAFETY: graphics is valid; hint is a documented enum value.
+        unsafe { GdipSetTextRenderingHint(graphics, TextRenderingHintAntiAliasGridFit) };
+
+        // Create FontFamily for "Segoe UI". Null font collection = system default.
+        let font_name: Vec<u16> = "Segoe UI"
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let mut family: *mut GpFontFamily = std::ptr::null_mut();
+        // SAFETY: font_name is null-terminated; null collection uses the system font collection.
+        // GdipCreateFontFamilyFromName accepts P0: Param<PCWSTR>; PCWSTR wraps a *const u16.
+        let s = unsafe {
+            GdipCreateFontFamilyFromName(
+                windows::core::PCWSTR(font_name.as_ptr()),
+                std::ptr::null_mut(),
+                &mut family,
+            )
+        };
+        if s != Status(0) {
+            unsafe {
+                GdipDeleteGraphics(graphics);
+                GdipDisposeImage(bitmap as *mut GpImage);
+            }
+            anyhow::bail!("GdipCreateFontFamilyFromName failed: {s:?}");
+        }
+
+        // Create a centered StringFormat (layout: centered horizontally and vertically).
+        let mut fmt: *mut GpStringFormat = std::ptr::null_mut();
+        // SAFETY: out-pointer is valid. Language 0 = neutral locale.
+        unsafe { GdipCreateStringFormat(0, 0u16, &mut fmt) };
+        unsafe { GdipSetStringFormatAlign(fmt, StringAlignmentCenter) };
+        unsafe { GdipSetStringFormatLineAlign(fmt, StringAlignmentCenter) };
+
+        // Layout rect = full 16×16 bitmap.
+        let layout = RectF { X: 0.0, Y: 0.0, Width: 16.0, Height: 16.0 };
+
+        // Build a GraphicsPath that traces the glyph outline.
+        let mut path: *mut GpPath = std::ptr::null_mut();
+        // SAFETY: out-pointer valid; FillModeAlternate is the standard winding rule.
+        unsafe { GdipCreatePath(FillModeAlternate, &mut path) };
+
+        // Add the glyph text to the path. Em-size 11 works well for 1-2 chars at 16×16.
+        // FontStyleBold.0 unwraps the FontStyle newtype to i32 for the style parameter.
+        // SAFETY: text is null-terminated PCWSTR; text_len is correct code-unit count.
+        unsafe {
+            GdipAddPathString(
+                path,
+                windows::core::PCWSTR(text.as_ptr()),
+                text_len,
+                family,
+                FontStyleBold.0,
+                11.0f32,
+                &layout,
+                fmt,
+            )
+        };
+
+        // Draw 1-pixel black outline along the path.
+        let mut pen: *mut GpPen = std::ptr::null_mut();
+        // ARGB 0xFF000000 = opaque black. UnitPixel means width is in screen pixels.
+        // SAFETY: out-pointer valid; color and unit are valid enum values.
+        unsafe { GdipCreatePen1(0xFF00_0000u32, 1.0f32, UnitPixel, &mut pen) };
+        // SAFETY: graphics, pen, and path are all valid.
+        unsafe { GdipDrawPath(graphics, pen, path) };
+
+        // Fill glyph interior with white.
+        let mut brush: *mut GpSolidFill = std::ptr::null_mut();
+        // ARGB 0xFFFFFFFF = opaque white.
+        // SAFETY: out-pointer valid; color is a valid ARGB value.
+        unsafe { GdipCreateSolidFill(0xFFFF_FFFFu32, &mut brush) };
+        // SAFETY: graphics, brush (cast to GpBrush), and path are valid.
+        unsafe { GdipFillPath(graphics, brush as *mut GpBrush, path) };
+
+        // Clean up glyph-specific GDI+ objects (LIFO order; error paths may leak these
+        // on early-exit before this point — accepted simplification for Stage 4 MVP).
+        // SAFETY: all handles were successfully created above.
+        unsafe {
+            GdipDeleteBrush(brush as *mut GpBrush);
+            GdipDeletePen(pen);
+            GdipDeletePath(path);
+            GdipDeleteStringFormat(fmt);
+            GdipDeleteFontFamily(family);
+        }
 
         // 4) Convert to HICON. The HICON owns its pixel data independently
         //    from the bitmap, so we can dispose the bitmap right after.
