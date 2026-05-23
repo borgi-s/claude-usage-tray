@@ -2,6 +2,7 @@
 //! its own HWND via find_hwnd_by_title and writes it into the shared slot
 //! so the tray UI thread can raise the window to front on subsequent clicks.
 
+use crate::dashboard::range::Range;
 use crate::dashboard::{find_hwnd_by_title, SendHwnd, DASHBOARD_WINDOW_TITLE};
 use crate::shared::SharedSnapshot;
 use std::sync::{Arc, Mutex};
@@ -10,6 +11,7 @@ pub struct DashboardApp {
     shared: SharedSnapshot,
     hwnd_slot: Arc<Mutex<Option<SendHwnd>>>,
     hwnd_found: bool,
+    range_5h: Range,
 }
 
 impl DashboardApp {
@@ -18,6 +20,7 @@ impl DashboardApp {
             shared,
             hwnd_slot,
             hwnd_found: false,
+            range_5h: Range::D5,
         }
     }
 
@@ -45,7 +48,8 @@ impl eframe::App for DashboardApp {
             crate::dashboard::kpi::render(ui, &snap.kpis, caps_available);
             ui.add_space(16.0);
             ui.separator();
-            ui.label(format!("Snapshot turns: {} (charts coming in next task)", snap.turns.len()));
+            ui.add_space(8.0);
+            crate::dashboard::chart_5h::render(ui, &snap, &mut self.range_5h);
         });
 
         // Request a repaint at ~30fps so the snapshot view stays fresh.
