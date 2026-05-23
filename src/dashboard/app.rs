@@ -14,7 +14,11 @@ pub struct DashboardApp {
 
 impl DashboardApp {
     pub fn new(shared: SharedSnapshot, hwnd_slot: Arc<Mutex<Option<SendHwnd>>>) -> Self {
-        Self { shared, hwnd_slot, hwnd_found: false }
+        Self {
+            shared,
+            hwnd_slot,
+            hwnd_found: false,
+        }
     }
 
     /// Try to find our own HWND. Called every frame until found.
@@ -35,9 +39,13 @@ impl eframe::App for DashboardApp {
         self.discover_hwnd_if_needed();
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Claude usage tracker");
-            ui.label(format!("Snapshot turns: {}", self.shared.read().unwrap().turns.len()));
-            ui.label("(dashboard content coming in later tasks)");
+            let snap = self.shared.read().unwrap().clone();
+            let caps_available = snap.caps.cap_5h.is_some() || snap.caps.cap_week.is_some();
+            ui.add_space(8.0);
+            crate::dashboard::kpi::render(ui, &snap.kpis, caps_available);
+            ui.add_space(16.0);
+            ui.separator();
+            ui.label(format!("Snapshot turns: {} (charts coming in next task)", snap.turns.len()));
         });
 
         // Request a repaint at ~30fps so the snapshot view stays fresh.
