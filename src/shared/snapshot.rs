@@ -41,6 +41,36 @@ pub fn cost_weighted(turn: &Turn) -> f64 {
         + turn.output_tokens as f64 * config::COST_WEIGHT_OUTPUT
 }
 
+use crate::calibration::anchors::{five_hour_burn_at, weekly_burn_at};
+
+/// Compute all four KPIs from the turns + caps. Called once per poll.
+pub fn compute_kpis(turns: &[Turn], caps: &DerivedCaps) -> DashboardKpis {
+    DashboardKpis {
+        peak_5h_share: peak_5h_share(turns, caps),
+        peak_week_share: peak_week_share(turns, caps),
+        total_cost_weighted: 0.0,        // filled in by next task
+        daily_avg_cost_weighted: 0.0,    // filled in by next task
+    }
+}
+
+/// Max cumulative-share across any 5h window, or 0.0 if cap_5h is None.
+fn peak_5h_share(turns: &[Turn], caps: &DerivedCaps) -> f64 {
+    let Some(cap) = caps.cap_5h else { return 0.0 };
+    if cap <= 0.0 { return 0.0; }
+    turns.iter()
+        .map(|t| five_hour_burn_at(turns, t.ts) as f64 / cap)
+        .fold(0.0_f64, f64::max)
+}
+
+/// Max cumulative-share across any weekly window, or 0.0 if cap_week is None.
+fn peak_week_share(turns: &[Turn], caps: &DerivedCaps) -> f64 {
+    let Some(cap) = caps.cap_week else { return 0.0 };
+    if cap <= 0.0 { return 0.0; }
+    turns.iter()
+        .map(|t| weekly_burn_at(turns, t.ts) as f64 / cap)
+        .fold(0.0_f64, f64::max)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -70,5 +100,40 @@ mod tests {
         // Expected: 100*1 + 200*1.25 + 300*0.1 + 400*5 = 100 + 250 + 30 + 2000 = 2380.
         let t = turn(100, 200, 300, 400);
         assert!((cost_weighted(&t) - 2380.0).abs() < 0.001);
+    }
+
+    use chrono::TimeZone;
+    fn utc(y: i32, m: u32, d: u32, h: u32, mi: u32) -> chrono::DateTime<chrono::Utc> {
+        chrono::Utc.with_ymd_and_hms(y, m, d, h, mi, 0).unwrap()
+    }
+    fn turn_at(ts: chrono::DateTime<chrono::Utc>, output: u64) -> Turn {
+        let mut t = turn(0, 0, 0, output);
+        t.ts = ts;
+        t
+    }
+
+    #[test]
+    fn compute_kpis_peak_5h_share_max_across_windows() {
+        // Two 5h windows. Window 1 (10:00-12:00): 100+200+300 = 600 output.
+        // Window 2 (18:00): 100 output. 6h gap so they're separate.
+        // cap_5h = 1000. Peak share = 600/1000 = 0.6.
+        let turns = vec![
+            turn_at(utc(2026, 5, 24, 10, 0), 100),
+            turn_at(utc(2026, 5, 24, 11, 0), 200),
+            turn_at(utc(2026, 5, 24, 12, 0), 300),
+            turn_at(utc(2026, 5, 24, 18, 0), 100),  // 6h gap → new window
+        ];
+        let caps = DerivedCaps { cap_5h: Some(1000.0), cap_week: None, n_anchors_5h: 1, n_anchors_week: 0 };
+        let k = compute_kpis(&turns, &caps);
+        assert!((k.peak_5h_share - 0.6).abs() < 0.001);
+    }
+
+    #[test]
+    fn compute_kpis_peak_share_zero_when_cap_none() {
+        let turns = vec![turn_at(utc(2026, 5, 24, 10, 0), 100)];
+        let caps = DerivedCaps::default();  // both caps None
+        let k = compute_kpis(&turns, &caps);
+        assert_eq!(k.peak_5h_share, 0.0);
+        assert_eq!(k.peak_week_share, 0.0);
     }
 }
