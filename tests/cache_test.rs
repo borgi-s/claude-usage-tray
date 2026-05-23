@@ -23,3 +23,40 @@ fn refresh_first_run_parses_all_files() {
     assert!(app_dir.path().join("cache.bincode").exists());
     assert!(app_dir.path().join("cache_manifest.json").exists());
 }
+
+#[test]
+fn refresh_second_run_reparses_only_changed_files() {
+    let projects = TempDir::new().unwrap();
+    let app_dir = TempDir::new().unwrap();
+    write_jsonl(projects.path(), "a/sess-1.jsonl", SAMPLE_USAGE_LINE);
+    write_jsonl(projects.path(), "b/sess-2.jsonl", SAMPLE_USAGE_LINE);
+
+    // First run primes the cache.
+    let turns_1 = cache::refresh_at(projects.path(), app_dir.path()).unwrap();
+    assert_eq!(turns_1.len(), 2);
+
+    // Modify sess-1 to add a second row. Set its mtime to "now" explicitly so
+    // the change is detectable even on filesystems with coarse mtime resolution.
+    let extra = format!("\n{}", SAMPLE_USAGE_LINE);
+    let p1 = projects.path().join("a").join("sess-1.jsonl");
+    let mut existing = std::fs::read_to_string(&p1).unwrap();
+    existing.push_str(&extra);
+    std::fs::write(&p1, existing).unwrap();
+    let now = std::time::SystemTime::now() + std::time::Duration::from_secs(2);
+    filetime::set_file_mtime(&p1, filetime::FileTime::from_system_time(now)).unwrap();
+
+    let turns_2 = cache::refresh_at(projects.path(), app_dir.path()).unwrap();
+    // sess-1 now has 2 rows; sess-2 still has 1.
+    assert_eq!(turns_2.len(), 3);
+}
+
+#[test]
+fn refresh_no_changes_returns_quickly_with_same_count() {
+    let projects = TempDir::new().unwrap();
+    let app_dir = TempDir::new().unwrap();
+    write_jsonl(projects.path(), "a/sess.jsonl", SAMPLE_USAGE_LINE);
+
+    let turns_1 = cache::refresh_at(projects.path(), app_dir.path()).unwrap();
+    let turns_2 = cache::refresh_at(projects.path(), app_dir.path()).unwrap();
+    assert_eq!(turns_1, turns_2);
+}
