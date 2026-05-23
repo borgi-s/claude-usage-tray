@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 1100" font-family="system-ui, -apple-system, Segoe UI, sans-serif">
+  <style>
+    .title { font-size: 22px; font-weight: 700; fill: #111; }
+    .sub   { font-size: 14px; fill: #555; }
+    .hdr   { font-size: 14px; font-weight: 700; fill: #111; text-anchor: middle; }
+    .lbl   { font-size: 12px; fill: #888; text-anchor: middle; }
+    .util  { font-size: 16px; font-weight: 700; fill: #333; }
+    .desc  { font-size: 13px; fill: #444; }
+    .icon  { font-family: Segoe UI, sans-serif; font-weight: 700; }
+  </style>
+
+  <rect width="100%" height="100%" fill="#fafafa"/>
+
+  <!-- HEADER -->
+  <text x="30" y="38" class="title">Stage 4 — text color on the anchored gradient</text>
+  <text x="30" y="62" class="sub">Backgrounds use the Q5-B anchored gradient. Same util values as before.</text>
+  <text x="30" y="80" class="sub">Watch the 50% and 65% rows — that's where contrast fails for plain white.</text>
+
+  <!-- COLUMN HEADERS -->
+  <text x="170" y="120" class="hdr">A: Plain white</text>
+  <text x="170" y="138" class="lbl">(simplest GDI call)</text>
+  <text x="350" y="120" class="hdr">B: White + 1px black outline</text>
+  <text x="350" y="138" class="lbl">(two-pass GDI draw)</text>
+  <text x="530" y="120" class="hdr">C: Solid black</text>
+  <text x="530" y="138" class="lbl">(loses on dark red)</text>
+
+  <!-- ROW 1: 25% util, bg #7bb81b (olive-green) -->
+  <text x="40" y="200" class="util">25%</text>
+  <!-- A -->
+  <rect x="120" y="170" width="16" height="16" fill="#7bb81b"/>
+  <rect x="145" y="170" width="64" height="64" fill="#7bb81b"/>
+  <text x="157" y="218" font-size="44" class="icon" fill="white">25</text>
+  <!-- B: white with black stroke -->
+  <rect x="300" y="170" width="16" height="16" fill="#7bb81b"/>
+  <rect x="325" y="170" width="64" height="64" fill="#7bb81b"/>
+  <text x="337" y="218" font-size="44" class="icon" fill="white" stroke="#000" stroke-width="2.5" paint-order="stroke">25</text>
+  <!-- C: black -->
+  <rect x="480" y="170" width="16" height="16" fill="#7bb81b"/>
+  <rect x="505" y="170" width="64" height="64" fill="#7bb81b"/>
+  <text x="517" y="218" font-size="44" class="icon" fill="black">25</text>
+
+  <!-- ROW 2: 50% util, bg #c7b808 (gold) — the danger zone for white -->
+  <text x="40" y="290" class="util">50%</text>
+  <rect x="120" y="260" width="16" height="16" fill="#c7b808"/>
+  <rect x="145" y="260" width="64" height="64" fill="#c7b808"/>
+  <text x="157" y="308" font-size="44" class="icon" fill="white">50</text>
+  <rect x="300" y="260" width="16" height="16" fill="#c7b808"/>
+  <rect x="325" y="260" width="64" height="64" fill="#c7b808"/>
+  <text x="337" y="308" font-size="44" class="icon" fill="white" stroke="#000" stroke-width="2.5" paint-order="stroke">50</text>
+  <rect x="480" y="260" width="16" height="16" fill="#c7b808"/>
+  <rect x="505" y="260" width="64" height="64" fill="#c7b808"/>
+  <text x="517" y="308" font-size="44" class="icon" fill="black">50</text>
+
+  <!-- ROW 3: 65%, bg #e19b08 (orange-yellow) -->
+  <text x="40" y="380" class="util">65%</text>
+  <rect x="120" y="350" width="16" height="16" fill="#e19b08"/>
+  <rect x="145" y="350" width="64" height="64" fill="#e19b08"/>
+  <text x="157" y="398" font-size="44" class="icon" fill="white">65</text>
+  <rect x="300" y="350" width="16" height="16" fill="#e19b08"/>
+  <rect x="325" y="350" width="64" height="64" fill="#e19b08"/>
+  <text x="337" y="398" font-size="44" class="icon" fill="white" stroke="#000" stroke-width="2.5" paint-order="stroke">65</text>
+  <rect x="480" y="350" width="16" height="16" fill="#e19b08"/>
+  <rect x="505" y="350" width="64" height="64" fill="#e19b08"/>
+  <text x="517" y="398" font-size="44" class="icon" fill="black">65</text>
+
+  <!-- ROW 4: 80%, bg #d14621 (orange-red) -->
+  <text x="40" y="470" class="util">80%</text>
+  <rect x="120" y="440" width="16" height="16" fill="#d14621"/>
+  <rect x="145" y="440" width="64" height="64" fill="#d14621"/>
+  <text x="157" y="488" font-size="44" class="icon" fill="white">80</text>
+  <rect x="300" y="440" width="16" height="16" fill="#d14621"/>
+  <rect x="325" y="440" width="64" height="64" fill="#d14621"/>
+  <text x="337" y="488" font-size="44" class="icon" fill="white" stroke="#000" stroke-width="2.5" paint-order="stroke">80</text>
+  <rect x="480" y="440" width="16" height="16" fill="#d14621"/>
+  <rect x="505" y="440" width="64" height="64" fill="#d14621"/>
+  <text x="517" y="488" font-size="44" class="icon" fill="black">80</text>
+
+  <!-- ROW 5: 92%, bg #cc2929 (red) — danger zone for black -->
+  <text x="40" y="560" class="util">92%</text>
+  <rect x="120" y="530" width="16" height="16" fill="#cc2929"/>
+  <rect x="145" y="530" width="64" height="64" fill="#cc2929"/>
+  <text x="157" y="578" font-size="44" class="icon" fill="white">92</text>
+  <rect x="300" y="530" width="16" height="16" fill="#cc2929"/>
+  <rect x="325" y="530" width="64" height="64" fill="#cc2929"/>
+  <text x="337" y="578" font-size="44" class="icon" fill="white" stroke="#000" stroke-width="2.5" paint-order="stroke">92</text>
+  <rect x="480" y="530" width="16" height="16" fill="#cc2929"/>
+  <rect x="505" y="530" width="64" height="64" fill="#cc2929"/>
+  <text x="517" y="578" font-size="44" class="icon" fill="black">92</text>
+
+  <line x1="20" y1="620" x2="600" y2="620" stroke="#ddd"/>
+
+  <!-- ANALYSIS -->
+  <rect x="20" y="650" width="580" height="430" fill="#ffffff" stroke="#e3e3e3"/>
+  <text x="30" y="678" class="hdr" text-anchor="start">Notes</text>
+
+  <text x="30" y="710" class="desc" font-weight="700">A — Plain white:</text>
+  <text x="30" y="730" class="desc">Looks fine on green (25%) and red (92%). On gold/orange-yellow (50–65%) it's poor.</text>
+  <text x="30" y="750" class="desc">The middle util range is where you're most likely to be looking; that's the wrong place to fail.</text>
+
+  <text x="30" y="790" class="desc" font-weight="700">B — White + 1px black outline:</text>
+  <text x="30" y="810" class="desc">Readable on every background. Slight pixel cost — the outline eats into digit width at 16×16.</text>
+  <text x="30" y="830" class="desc">Two GDI passes per icon: stroke first, then fill. Marginal complexity.</text>
+
+  <text x="30" y="870" class="desc" font-weight="700">C — Solid black:</text>
+  <text x="30" y="890" class="desc">Great on the gold mid-range; questionable on dark red (#cc2929 → black is ~3.5:1, borderline).</text>
+  <text x="30" y="910" class="desc">Reads as "dark warning sign" at the red end — could be intentional, could feel oppressive.</text>
+
+  <text x="30" y="950" class="desc" font-weight="700">My recommendation:</text>
+  <text x="30" y="970" class="desc">B — white with black outline. Always legible, doesn't shift visual personality with util, and</text>
+  <text x="30" y="990" class="desc">the outline reinforces digit edges against anti-aliasing artifacts at 16×16.</text>
+
+  <text x="30" y="1030" class="desc" font-weight="700">Honest caveat:</text>
+  <text x="30" y="1050" class="desc">SVG renders strokes much cleaner than GDI at 16×16. The real result depends on font choice</text>
+  <text x="30" y="1068" class="desc">(next question) — a thin font with an outline at 16 px can look muddy. We'll iterate if needed.</text>
+</svg>
