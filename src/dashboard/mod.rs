@@ -1,5 +1,7 @@
 //! Native egui dashboard window.
 
+pub mod app;
+
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use windows::Win32::Foundation::HWND;
