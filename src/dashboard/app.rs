@@ -48,20 +48,23 @@ impl eframe::App for DashboardApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             let snap = self.shared.read().unwrap().clone();
             let caps_available = snap.caps.cap_5h.is_some() || snap.caps.cap_week.is_some();
-            ui.add_space(8.0);
-            crate::dashboard::kpi::render(ui, &snap.kpis, caps_available);
-            ui.add_space(16.0);
-            ui.separator();
-            ui.add_space(8.0);
-            crate::dashboard::chart_5h::render(ui, &snap, &mut self.range_5h);
-            ui.add_space(16.0);
-            ui.separator();
-            ui.add_space(8.0);
-            crate::dashboard::chart_weekly::render(ui, &snap, &mut self.range_week);
-            ui.add_space(16.0);
-            ui.separator();
-            ui.add_space(8.0);
-            crate::dashboard::chart_daily::render(ui, &snap, &mut self.range_daily);
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.add_space(8.0);
+                crate::dashboard::kpi::render(ui, &snap.kpis, caps_available);
+                ui.add_space(16.0);
+                ui.separator();
+                ui.add_space(8.0);
+                crate::dashboard::chart_5h::render(ui, &snap, &mut self.range_5h);
+                ui.add_space(16.0);
+                ui.separator();
+                ui.add_space(8.0);
+                crate::dashboard::chart_weekly::render(ui, &snap, &mut self.range_week);
+                ui.add_space(16.0);
+                ui.separator();
+                ui.add_space(8.0);
+                crate::dashboard::chart_daily::render(ui, &snap, &mut self.range_daily);
+                ui.add_space(8.0);
+            });
         });
 
         // Request a repaint at ~30fps so the snapshot view stays fresh.
