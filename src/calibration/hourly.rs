@@ -57,6 +57,35 @@ pub fn per_hour_medians(
     out
 }
 
+/// Circular rolling median over a 24-bin array. Window size 3 means each bin
+/// gets the median of itself and its two neighbors (with wrap). None values
+/// are skipped.
+pub fn smooth_rolling_circular(raw: &[Option<f64>; 24], window: usize) -> [Option<f64>; 24] {
+    let half = (window / 2) as isize;
+    let n = 24isize;
+    let mut out: [Option<f64>; 24] = [None; 24];
+    for i in 0..24isize {
+        let mut neighbors: Vec<f64> = Vec::new();
+        for offset in -half..=half {
+            let j = ((i + offset) % n + n) % n;
+            if let Some(v) = raw[j as usize] {
+                neighbors.push(v);
+            }
+        }
+        if neighbors.is_empty() {
+            continue;
+        }
+        neighbors.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let m = neighbors.len();
+        out[i as usize] = Some(if m % 2 == 1 {
+            neighbors[m / 2]
+        } else {
+            (neighbors[m / 2 - 1] + neighbors[m / 2]) / 2.0
+        });
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,6 +152,32 @@ mod tests {
                 assert_eq!(*v, None);
             }
         }
+    }
+
+    #[test]
+    fn smooth_rolling_circular_passes_through_dense_data() {
+        let mut raw = [Some(100.0); 24];
+        raw[12] = Some(200.0);
+        // 3-bin median at hour 12: median(100, 200, 100) = 100.
+        // At hour 11: median(100, 100, 200) = 100. Identical.
+        let out = smooth_rolling_circular(&raw, 3);
+        assert_eq!(out[12], Some(100.0));
+        assert_eq!(out[11], Some(100.0));
+    }
+
+    #[test]
+    fn smooth_rolling_circular_handles_nones_by_skipping() {
+        let mut raw: [Option<f64>; 24] = [None; 24];
+        raw[10] = Some(50.0);
+        raw[11] = Some(100.0);
+        raw[12] = Some(150.0);
+        let out = smooth_rolling_circular(&raw, 3);
+        // At 11: median(50, 100, 150) = 100.
+        assert_eq!(out[11], Some(100.0));
+        // At 12: median(100, 150) = 125.
+        assert_eq!(out[12], Some(125.0));
+        // At 13: only 150 contributes from neighbor at 12. median(150) = 150.
+        assert_eq!(out[13], Some(150.0));
     }
 }
 
