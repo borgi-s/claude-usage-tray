@@ -3,12 +3,25 @@
 use anyhow::{bail, Result};
 
 /// Validated Supabase sync configuration. Absent => sync disabled.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct SyncConfig {
     pub url: String,
     pub service_role_key: String,
     pub bucket: String,
     pub prefix: String,
+}
+
+// Manual Debug so the service_role_key (a Supabase superuser credential) never
+// reaches a log line or error chain via {:?}.
+impl std::fmt::Debug for SyncConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SyncConfig")
+            .field("url", &self.url)
+            .field("service_role_key", &"[redacted]")
+            .field("bucket", &self.bucket)
+            .field("prefix", &self.prefix)
+            .finish()
+    }
 }
 
 const DEFAULT_BUCKET: &str = "usage-tracker";
@@ -75,6 +88,19 @@ mod tests {
         for k in ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_BUCKET", "SUPABASE_USER_PREFIX"] {
             std::env::remove_var(k);
         }
+    }
+
+    #[test]
+    fn debug_redacts_service_role_key() {
+        let cfg = SyncConfig {
+            url: "https://x.supabase.co".into(),
+            service_role_key: "super-secret-key".into(),
+            bucket: "b".into(),
+            prefix: "p".into(),
+        };
+        let dbg = format!("{cfg:?}");
+        assert!(dbg.contains("[redacted]"));
+        assert!(!dbg.contains("super-secret-key"));
     }
 
     #[test]

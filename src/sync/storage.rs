@@ -20,6 +20,7 @@ pub trait ObjectStore {
 
 /// Supabase Storage REST client. Uploads via `PUT /storage/v1/object/{bucket}/{key}`
 /// with `x-upsert: true` so existing objects are overwritten.
+// No `derive(Debug)`: holds the service_role_key; see SyncConfig's redacted Debug.
 pub struct SupabaseStore {
     agent: ureq::Agent,
     base_url: String, // trimmed, no trailing slash
