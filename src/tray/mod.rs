@@ -32,6 +32,10 @@ pub fn run(interval_secs: u64) -> Result<()> {
         current_hicon: None,
         rx,
         shutdown: shutdown.clone(),
+        last_caps: None,
+        last_local_util: None,
+        last_hourly_5h: None,
+        last_hourly_week: None,
     });
 
     let hwnd = window::create(hinst, state)?;

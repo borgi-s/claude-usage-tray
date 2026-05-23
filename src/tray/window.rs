@@ -1,4 +1,6 @@
 use crate::api::usage::UsageSnapshot;
+use crate::calibration::anchors::DerivedCaps;
+use crate::calibration::live::LiveUtil;
 use crate::render::{format_duration, LastStatus};
 use crate::tray::icon::{self, IconRenderer};
 use crate::tray::poller::{PollEvent, WM_APP_POLL};
@@ -40,6 +42,10 @@ pub struct TrayState {
     pub current_hicon: Option<HICON>,
     pub rx: Receiver<PollEvent>,
     pub shutdown: Arc<AtomicBool>,
+    pub last_caps: Option<DerivedCaps>,
+    pub last_local_util: Option<LiveUtil>,
+    pub last_hourly_5h: Option<[f64; 24]>,
+    pub last_hourly_week: Option<[f64; 24]>,
 }
 
 impl Drop for TrayState {
@@ -199,9 +205,13 @@ fn drain_and_redraw(hwnd: HWND, state: &mut TrayState) {
     // Drain all queued events, keeping the most recent.
     while let Ok(event) = state.rx.try_recv() {
         match event {
-            PollEvent::Ok { snap, calib: _ } => {
+            PollEvent::Ok { snap, calib } => {
                 state.last_sample = Some((snap, Utc::now()));
                 state.last_status = LastStatus::Ok;
+                state.last_caps = Some(calib.caps);
+                state.last_local_util = Some(calib.live);
+                state.last_hourly_5h = Some(calib.hourly_5h);
+                state.last_hourly_week = Some(calib.hourly_week);
             }
             PollEvent::RateLimited => {
                 state.last_status = LastStatus::RateLimited;
