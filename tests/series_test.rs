@@ -101,3 +101,42 @@ fn cumulative_share_weekly_resets_at_sunday_0700_local() {
     let next_share = series.iter().find(|w| w.ts == utc(2026, 5, 24, 6, 0)).unwrap();
     assert!((next_share.cumulative_share - 0.05).abs() < 0.001);
 }
+
+#[test]
+fn daily_aggregates_groups_by_local_date() {
+    use chrono::Datelike;
+    use claude_usage_tray::dashboard::series::daily_aggregates;
+
+    // Each turn input=10, cache_create=10, cache_read=10, output=10.
+    // cost_weighted per turn = 10*1 + 10*1.25 + 10*0.1 + 10*5 = 73.5.
+    let mk = |ts: chrono::DateTime<chrono::Utc>| {
+        let mut t = turn(ts, 10);
+        t.input_tokens = 10;
+        t.cache_creation_input_tokens = 10;
+        t.cache_read_input_tokens = 10;
+        t
+    };
+    // 2026-05-24 10:00 UTC = 12:00 CEST = May 24 local.
+    // 2026-05-24 23:30 UTC = 01:30 CEST May 25 → May 25 local.
+    // 2026-05-25 10:00 UTC = 12:00 CEST May 25 → May 25 local.
+    let turns = vec![
+        mk(utc(2026, 5, 24, 10, 0)),
+        mk(utc(2026, 5, 24, 23, 30)),
+        mk(utc(2026, 5, 25, 10, 0)),
+    ];
+    let daily = daily_aggregates(&turns);
+    // May 24 local: 1 turn = 73.5. May 25 local: 2 turns = 147.0.
+    assert_eq!(daily.len(), 2);
+    let may24 = daily.iter().find(|(d, _)| d.day() == 24).unwrap();
+    let may25 = daily.iter().find(|(d, _)| d.day() == 25).unwrap();
+    assert!((may24.1 - 73.5).abs() < 0.01);
+    assert!((may25.1 - 147.0).abs() < 0.01);
+}
+
+#[test]
+fn daily_aggregates_empty_returns_empty() {
+    use claude_usage_tray::dashboard::series::daily_aggregates;
+
+    let out = daily_aggregates(&[]);
+    assert!(out.is_empty());
+}
