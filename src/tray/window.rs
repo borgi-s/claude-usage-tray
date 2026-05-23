@@ -220,7 +220,8 @@ fn drain_and_redraw(hwnd: HWND, state: &mut TrayState) {
         Err(e) => {
             tracing::warn!(error = %e, "IconRenderer::render failed, keeping previous icon");
             // Still refresh the tooltip — text-only update.
-            let tooltip = format_tooltip(&state.last_status, state.last_sample.as_ref(), Utc::now());
+            let tooltip =
+                format_tooltip(&state.last_status, state.last_sample.as_ref(), Utc::now());
             if let Some(current) = state.current_hicon {
                 icon::modify(hwnd, WM_APP_TRAYICON, current, &tooltip);
             }

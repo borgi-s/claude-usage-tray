@@ -3,14 +3,13 @@ use crate::render::LastStatus;
 use anyhow::{anyhow, Result};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::GdiPlus::{
-    FillModeAlternate, FontStyleBold, GdipAddPathString, GdipCreateBitmapFromScan0,
-    GdipCreateFontFamilyFromName, GdipCreateHICONFromBitmap, GdipCreatePath, GdipCreatePen1,
-    GdipCreateSolidFill, GdipCreateStringFormat, GdipDeleteBrush, GdipDeleteFontFamily,
-    GdipDeleteGraphics, GdipDeletePath, GdipDeletePen, GdipDeleteStringFormat, GdipDisposeImage,
-    GdipDrawPath, GdipFillPath, GdipGetImageGraphicsContext, GdipGraphicsClear,
+    FontStyleBold, GdipCreateBitmapFromScan0, GdipCreateFont, GdipCreateFontFamilyFromName,
+    GdipCreateHICONFromBitmap, GdipCreateSolidFill, GdipCreateStringFormat, GdipDeleteBrush,
+    GdipDeleteFont, GdipDeleteFontFamily, GdipDeleteGraphics, GdipDeleteStringFormat,
+    GdipDisposeImage, GdipDrawString, GdipGetImageGraphicsContext, GdipGraphicsClear,
     GdipSetStringFormatAlign, GdipSetStringFormatLineAlign, GdipSetTextRenderingHint, GpBitmap,
-    GpBrush, GpFontFamily, GpGraphics, GpImage, GpPath, GpPen, GpSolidFill, GpStringFormat, RectF,
-    Status, StringAlignmentCenter, TextRenderingHintSingleBitPerPixel, UnitPixel,
+    GpBrush, GpFont, GpFontFamily, GpGraphics, GpImage, GpSolidFill, GpStringFormat, RectF, Status,
+    StringAlignmentCenter, TextRenderingHintSingleBitPerPixelGridFit, UnitPixel,
 };
 use windows::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
@@ -226,9 +225,11 @@ impl IconRenderer {
         // 4a) Glyph drawing: white digits / ! / ? with 1-pixel black outline.
         let (text, text_len) = glyph_to_text(glyph);
 
-        // Use no-AA pixel rendering — crisp pixels at 16×16 instead of fuzzy AA blends.
+        // Crisp + hinted text: SingleBitPerPixelGridFit gives no AA but uses the font's
+        // TrueType hints to snap strokes to the pixel grid. This is how the Windows clock
+        // and other system UI text stays crisp at small sizes.
         // SAFETY: graphics is valid; hint is a documented enum value.
-        unsafe { GdipSetTextRenderingHint(graphics, TextRenderingHintSingleBitPerPixel) };
+        unsafe { GdipSetTextRenderingHint(graphics, TextRenderingHintSingleBitPerPixelGridFit) };
 
         // Create FontFamily for "Segoe UI". Null font collection = system default.
         let font_name: Vec<u16> = "Segoe UI"
@@ -260,7 +261,8 @@ impl IconRenderer {
         unsafe { GdipSetStringFormatAlign(fmt, StringAlignmentCenter) };
         unsafe { GdipSetStringFormatLineAlign(fmt, StringAlignmentCenter) };
 
-        // Layout rect = full 16×16 bitmap.
+        // Layout rect = full 16×16 bitmap. GDI+ DrawString with StringAlignmentCenter
+        // centers the hinted glyph cache on this rect; no metric-compensation offset needed.
         let layout = RectF {
             X: 0.0,
             Y: 0.0,
@@ -268,54 +270,41 @@ impl IconRenderer {
             Height: 16.0,
         };
 
-        // Build a GraphicsPath that traces the glyph outline.
-        let mut path: *mut GpPath = std::ptr::null_mut();
-        // SAFETY: out-pointer valid; FillModeAlternate is the standard winding rule.
-        unsafe { GdipCreatePath(FillModeAlternate, &mut path) };
+        // Adaptive em-size: a single character fills the 16×16 box (em-size 12);
+        // two-digit values shrink so "77" or "99" fit horizontally (em-size 9).
+        // These are pixel units (UnitPixel) — em-size equals the character height in pixels.
+        let em_size: f32 = if text_len >= 2 { 9.0 } else { 12.0 };
 
-        // Adaptive em-size: a single character fills the 16×16 box (em-size 14);
-        // two-digit values shrink so "77" or "99" fit horizontally (em-size 10).
-        // Bigger is more legible; smaller is needed to avoid clipping the second digit.
-        let em_size: f32 = if text_len >= 2 { 10.0 } else { 14.0 };
+        // Build a Font from the FontFamily at the chosen em-size + bold weight.
+        // SAFETY: family is valid; em_size, style, unit, out-pointer all valid.
+        let mut font: *mut GpFont = std::ptr::null_mut();
+        unsafe { GdipCreateFont(family, em_size, FontStyleBold.0, UnitPixel, &mut font) };
 
-        // Add the glyph text to the path. FontStyleBold.0 unwraps the newtype to i32.
-        // SAFETY: text is null-terminated PCWSTR; text_len is correct code-unit count.
+        // White SolidBrush for the text fill.
+        // SAFETY: out-pointer valid; ARGB 0xFFFFFFFF = opaque white.
+        let mut brush: *mut GpSolidFill = std::ptr::null_mut();
+        unsafe { GdipCreateSolidFill(0xFFFF_FFFFu32, &mut brush) };
+
+        // Draw the text directly via GDI+'s hinted glyph cache (NOT path-based).
+        // This is the same code path the OS uses for system text — produces crisp hinted glyphs.
+        // SAFETY: every pointer is valid; text is null-terminated UTF-16; text_len is correct.
         unsafe {
-            GdipAddPathString(
-                path,
+            GdipDrawString(
+                graphics,
                 windows::core::PCWSTR(text.as_ptr()),
                 text_len,
-                family,
-                FontStyleBold.0,
-                em_size,
+                font,
                 &layout,
                 fmt,
+                brush as *mut GpBrush,
             )
         };
 
-        // Draw 1-pixel black outline along the path.
-        let mut pen: *mut GpPen = std::ptr::null_mut();
-        // ARGB 0xFF000000 = opaque black. UnitPixel means width is in screen pixels.
-        // SAFETY: out-pointer valid; color and unit are valid enum values.
-        unsafe { GdipCreatePen1(0xFF00_0000u32, 1.0f32, UnitPixel, &mut pen) };
-        // SAFETY: graphics, pen, and path are all valid.
-        unsafe { GdipDrawPath(graphics, pen, path) };
-
-        // Fill glyph interior with white.
-        let mut brush: *mut GpSolidFill = std::ptr::null_mut();
-        // ARGB 0xFFFFFFFF = opaque white.
-        // SAFETY: out-pointer valid; color is a valid ARGB value.
-        unsafe { GdipCreateSolidFill(0xFFFF_FFFFu32, &mut brush) };
-        // SAFETY: graphics, brush (cast to GpBrush), and path are valid.
-        unsafe { GdipFillPath(graphics, brush as *mut GpBrush, path) };
-
-        // Clean up glyph-specific GDI+ objects (LIFO order; error paths may leak these
-        // on early-exit before this point — accepted simplification for Stage 4 MVP).
+        // Clean up glyph-specific GDI+ objects (LIFO order).
         // SAFETY: all handles were successfully created above.
         unsafe {
             GdipDeleteBrush(brush as *mut GpBrush);
-            GdipDeletePen(pen);
-            GdipDeletePath(path);
+            GdipDeleteFont(font);
             GdipDeleteStringFormat(fmt);
             GdipDeleteFontFamily(family);
         }
