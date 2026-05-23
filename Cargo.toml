@@ -1,6 +1,6 @@
 [package]
 name = "claude-usage-tray"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 authors = ["borgi-s"]
 description = "Native Windows tray widget for Claude Code usage tracking."
@@ -13,6 +13,8 @@ ureq = { version = "2.10", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.9"
+bincode = "1.3"
 dirs = "5"
 anyhow = "1"
 thiserror = "1"
@@ -32,3 +34,4 @@ windows = { version = "0.58", features = [
 
 [dev-dependencies]
 tempfile = "3"
+filetime = "0.2"

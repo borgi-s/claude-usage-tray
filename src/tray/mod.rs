@@ -32,12 +32,17 @@ pub fn run(interval_secs: u64) -> Result<()> {
         current_hicon: None,
         rx,
         shutdown: shutdown.clone(),
+        last_caps: None,
+        last_local_util: None,
+        last_hourly_5h: None,
+        last_hourly_week: None,
     });
 
     let hwnd = window::create(hinst, state)?;
 
     // Build initial tooltip and register the tray icon with a freshly-rendered HICON.
-    let initial_tooltip = window::format_tooltip(&LastStatus::Initial, None, chrono::Utc::now());
+    let initial_tooltip =
+        window::format_tooltip(&LastStatus::Initial, None, None, chrono::Utc::now());
     render_and_store_initial_icon(hwnd, &initial_tooltip)?;
 
     let send_hwnd = poller::SendHwnd(hwnd);

@@ -1,5 +1,7 @@
 use crate::api::credentials::Credentials;
 use crate::api::usage::{FetchError, UsageSnapshot};
+use crate::calibration::anchors::DerivedCaps;
+use crate::calibration::live::LiveUtil;
 use crate::poll::poll_once;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
@@ -13,11 +15,27 @@ use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 /// event has been queued in the mpsc channel.
 pub const WM_APP_POLL: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 1;
 
+/// Calibration outputs attached to a successful poll.
+#[derive(Debug, Clone, Default)]
+pub struct PollCalibration {
+    pub caps: DerivedCaps,
+    pub live: LiveUtil,
+    pub hourly_5h: [f64; 24],
+    pub hourly_week: [f64; 24],
+}
+
 /// One outcome of a single poll attempt. Sent from the polling thread to the
 /// UI thread via mpsc.
+///
+/// `calib` is boxed because `PollCalibration` (two 24-element f64 arrays) is
+/// ~520 bytes, much larger than the other variants. Boxing keeps `PollEvent`
+/// channel sends to pointer-size for the common rate-limit / error cases.
 #[derive(Debug)]
 pub enum PollEvent {
-    Ok(UsageSnapshot),
+    Ok {
+        snap: UsageSnapshot,
+        calib: Box<PollCalibration>,
+    },
     RateLimited,
     Error(String),
 }
@@ -65,8 +83,15 @@ fn polling_loop(
     while !shutdown.load(Ordering::Relaxed) {
         let fetch_at = Instant::now();
 
+        // Stage 5: refresh local cache + derive caps + live util.
+        let calib = compute_calibration();
+
+        // API fetch.
         let event = match poll_once(&creds) {
-            Ok(snap) => PollEvent::Ok(snap),
+            Ok(snap) => PollEvent::Ok {
+                snap,
+                calib: Box::new(calib),
+            },
             Err(FetchError::RateLimited) => PollEvent::RateLimited,
             Err(other) => PollEvent::Error(other.to_string()),
         };
@@ -85,6 +110,52 @@ fn polling_loop(
     }
 
     tracing::info!("polling thread exiting");
+}
+
+/// Refresh cache, read calibration log, derive caps, compute live util + hourly.
+/// On any error returns `PollCalibration::default()` so the poll itself still proceeds.
+fn compute_calibration() -> PollCalibration {
+    use crate::calibration::anchors::derive_caps;
+    use crate::calibration::hourly::hour_of_day_cap_series;
+    use crate::calibration::live::live_util_now;
+    use crate::calibration::WindowKind;
+    use crate::data::cache;
+    use crate::log::calibration as log_calib;
+
+    let turns = match cache::refresh() {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!(error = %e, "cache::refresh failed; skipping calibration this tick");
+            return PollCalibration::default();
+        }
+    };
+    let log = match log_calib::read_all_default() {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::warn!(error = %e, "calibration log read failed; skipping calibration this tick");
+            return PollCalibration::default();
+        }
+    };
+
+    let caps = derive_caps(&log, &turns);
+    let hourly_5h = hour_of_day_cap_series(&log, &turns, WindowKind::FiveHour);
+    let hourly_week = hour_of_day_cap_series(&log, &turns, WindowKind::Weekly);
+    let live = live_util_now(&turns, &caps);
+
+    tracing::debug!(
+        n_anchors_5h = caps.n_anchors_5h,
+        n_anchors_week = caps.n_anchors_week,
+        cap_5h = ?caps.cap_5h,
+        cap_week = ?caps.cap_week,
+        "calibration computed"
+    );
+
+    PollCalibration {
+        caps,
+        live,
+        hourly_5h,
+        hourly_week,
+    }
 }
 
 fn sleep_interruptible(shutdown: &Arc<AtomicBool>, fetch_at: Instant, interval: Duration) {

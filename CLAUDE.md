@@ -20,8 +20,10 @@ User is a **Rust beginner** (zero prior Rust experience as of 2026-05-22). Expla
 - **Stage 3 plan:** `docs/superpowers/plans/2026-05-22-stage-3-tray.md` — task plan. **Shipped 2026-05-22 (tag `v0.3.0`).**
 - **Stage 4 spec:** `docs/superpowers/specs/2026-05-23-stage-4-gdi-icon-design.md` — GDI+ rendered percentage icon design details.
 - **Stage 4 plan:** `docs/superpowers/plans/2026-05-23-stage-4-gdi-icon.md` — task plan. **Shipped 2026-05-23 (tag `v0.4.0`).**
+- **Stage 5 spec:** `docs/superpowers/specs/2026-05-23-stage-5-calibration-design.md` — calibration math + local cache design.
+- **Stage 5 plan:** `docs/superpowers/plans/2026-05-23-stage-5-calibration.md` — task plan. **Shipped 2026-05-23 (tag `v0.5.0`).**
 
-Stages 5-8 will get their own implementation plans when each is ready to start.
+Stages 6-8 will get their own implementation plans when each is ready to start.
 
 ## Stage roadmap (summary — see spec for details)
 
@@ -31,7 +33,7 @@ Stages 5-8 will get their own implementation plans when each is ready to start.
 | 2 | Polling daemon (`--watch`) | ✅ Shipped — tag `v0.2.0`, pushed to GitHub |
 | 3 | Win32 tray icon (basic, solid color) | ✅ Shipped — tag `v0.3.0`, pushed to GitHub |
 | 4 | GDI-rendered percentage icon | ✅ Shipped — tag `v0.4.0`, pushed to GitHub |
-| 5 | Calibration math (port from Python's `caps.global_cap_from_anchors`) | Pending |
+| 5 | Calibration math (port from Python's `caps.global_cap_from_anchors`) | ✅ Shipped — tag `v0.5.0`, pushed to GitHub |
 | 6 | egui dashboard window | Pending |
 | 6.5 | Update notifier (GitHub Releases API) | Pending |
 | 7 | Supabase Storage upload | Pending |

@@ -1,7 +1,7 @@
 use chrono::{TimeZone, Utc};
 use claude_usage_tray::api::credentials::Credentials;
 use claude_usage_tray::api::usage::{UsageBucket, UsageSnapshot};
-use claude_usage_tray::log::calibration::{append, sample_from, CalibrationSample};
+use claude_usage_tray::log::calibration::{append, read_all, sample_from, CalibrationSample};
 use tempfile::TempDir;
 
 fn fake_creds() -> Credentials {
@@ -88,4 +88,18 @@ fn append_creates_parent_directory_lazily() {
         "expected file to exist at {}",
         nested.display()
     );
+}
+
+#[test]
+fn read_all_round_trips_through_append() {
+    let td = TempDir::new().unwrap();
+    let path = td.path().join("log.jsonl");
+
+    let sample = sample_from(&fake_snapshot(), &fake_creds());
+    append(&path, &sample).unwrap();
+    append(&path, &sample).unwrap();
+
+    let rows = read_all(&path).unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].subscription_type, "pro");
 }
