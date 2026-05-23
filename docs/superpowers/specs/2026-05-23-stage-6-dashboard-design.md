@@ -34,7 +34,9 @@ Settled during the Stage 6 brainstorm:
 | Calendar bands | YES — light grey shading for weekend days + nights (22:00–06:00 local) |
 | Range selector | YES — 1D / 5D / 14D / 1M / All buttons above each chart |
 | Window lifecycle | Close button destroys; one window allowed; re-click raises if open |
-| Threading | Dashboard runs on its own thread; eframe::run_native blocks that thread |
+| Threading | Dashboard runs on its own thread; eframe::run_native blocks that thread; `winit::EventLoopBuilder::with_any_thread(true)` opts into non-main-thread EventLoop creation on Windows |
+| HWND raise-to-front | `EnumWindows`-by-title (`"Claude usage tracker"`), stored in `Arc<Mutex<Option<HWND>>>` — non-blocking handoff from dashboard thread to tray UI thread |
+| Dashboard shutdown | On Quit, tray posts `WM_CLOSE` to the dashboard HWND, then joins the thread |
 | Shared data | `Arc<RwLock<AppSnapshot>>` written by polling thread, read by tray + dashboard |
 | Vec<Turn> sharing | Wrapped in `Arc<Vec<Turn>>` inside the snapshot to avoid 22 MB clones |
 | Uncalibrated handling | If caps are None, charts show raw `output_tokens` on y-axis with no 100% line and a banner: "Uncalibrated — chart shows raw output tokens until first ≥95% anchor is observed" |
@@ -184,7 +186,7 @@ Computed at use-time, not stored on `Turn`. Keeps the cache schema unchanged (`S
 ## Window lifecycle
 
 ```rust
-// tray/window.rs — gains a field on TrayState
+// tray/window.rs — gains fields on TrayState
 pub struct TrayState {
     // ...existing fields...
     pub shared: SharedSnapshot,
@@ -193,22 +195,30 @@ pub struct TrayState {
 
 // dashboard/mod.rs
 pub struct DashboardHandle {
-    pub hwnd: HWND,                          // the egui window's HWND, for raise-to-front
-    pub join: JoinHandle<()>,                // the thread running eframe::run_native
+    /// HWND of the dashboard window — populated asynchronously after the egui
+    /// window is built. `None` until the first frame finds the HWND; the
+    /// raise-to-front path checks `.lock().take()` and skips if still None.
+    pub hwnd: Arc<Mutex<Option<HWND>>>,
+    pub join: JoinHandle<()>,
 }
 ```
 
-LMB on the tray icon (`WM_APP_TRAYICON` with `lparam == WM_LBUTTONUP`):
+The HWND is `Arc<Mutex<Option<HWND>>>`, not a bare `HWND`, so that `launch()` can return immediately to the UI thread without blocking. The dashboard thread populates it after `eframe::run_native` builds the window. See "HWND extraction" below.
+
+**LMB on the tray icon** (`WM_APP_TRAYICON` with `lparam == WM_LBUTTONUP`):
 
 ```rust
 fn on_left_click(state: &mut TrayState) {
     let mut guard = state.dashboard.lock().unwrap();
     match guard.as_ref() {
         Some(handle) if !handle.join.is_finished() => {
-            // Still alive — raise the window to front.
-            unsafe {
-                let _ = SetForegroundWindow(handle.hwnd);
-                let _ = ShowWindow(handle.hwnd, SW_RESTORE);
+            // Still alive — try to raise to front. If HWND not populated yet,
+            // skip — the window is still being created and will appear soon.
+            if let Some(hwnd) = *handle.hwnd.lock().unwrap() {
+                unsafe {
+                    let _ = SetForegroundWindow(hwnd);
+                    let _ = ShowWindow(hwnd, SW_RESTORE);
+                }
             }
         }
         _ => {
@@ -219,19 +229,28 @@ fn on_left_click(state: &mut TrayState) {
 }
 ```
 
-The dashboard thread:
+**The dashboard launch is non-blocking** — `launch()` returns the handle immediately after spawning the thread:
 
 ```rust
 // dashboard/mod.rs
 pub fn launch(shared: SharedSnapshot) -> DashboardHandle {
-    let (hwnd_tx, hwnd_rx) = std::sync::mpsc::channel::<HWND>();
+    let hwnd_slot: Arc<Mutex<Option<HWND>>> = Arc::new(Mutex::new(None));
+    let hwnd_slot_for_thread = hwnd_slot.clone();
+
     let join = std::thread::spawn(move || {
-        let app = app::DashboardApp::new(shared, hwnd_tx);
+        let app = app::DashboardApp::new(shared, hwnd_slot_for_thread);
         let native_options = eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
                 .with_inner_size([1100.0, 720.0])
                 .with_min_inner_size([700.0, 480.0])
-                .with_title("Claude usage tracker"),
+                .with_title(DASHBOARD_WINDOW_TITLE),
+            // Allow EventLoop creation on a non-main thread. Without this,
+            // winit on Windows panics ("EventLoop must be created on the
+            // main thread").
+            event_loop_builder: Some(Box::new(|builder| {
+                use winit::platform::windows::EventLoopBuilderExtWindows;
+                builder.with_any_thread(true);
+            })),
             ..Default::default()
         };
         let _ = eframe::run_native(
@@ -239,37 +258,101 @@ pub fn launch(shared: SharedSnapshot) -> DashboardHandle {
             native_options,
             Box::new(|_cc| Ok(Box::new(app))),
         );
-        // eframe::run_native returned → window was closed → thread is about to exit.
+        // run_native returned → window was closed → thread is about to exit.
     });
-    // The thread sends its HWND once eframe has built the window.
-    // (Sent inside DashboardApp::update on the first frame.)
-    let hwnd = hwnd_rx.recv_timeout(Duration::from_secs(5))
-        .unwrap_or(HWND::default());
-    DashboardHandle { hwnd, join }
+
+    DashboardHandle { hwnd: hwnd_slot, join }
 }
+
+pub const DASHBOARD_WINDOW_TITLE: &str = "Claude usage tracker";
 ```
 
-`HWND` retrieval inside `DashboardApp::update`:
+The UI thread sees `DashboardHandle.hwnd` as `None` initially. Once egui builds its window (typically <300 ms but can be longer on cold GPU init), the dashboard thread writes the HWND. Any tray click that arrives before the HWND is populated finds `*handle.hwnd.lock().unwrap() == None` and skips the raise call. The window will pop on its own anyway since the OS gives focus to newly created top-level windows by default.
+
+### HWND extraction
+
+eframe 0.29 does **not** expose a stable way to retrieve the underlying HWND from inside `App::update` — `Frame::raw_window_handle()` was removed and not all eframe builds offer a clean replacement. The spec uses a Win32-native approach instead: find the HWND by enumerating top-level windows and matching on the unique title.
+
+Strategy (inside `DashboardApp::update`, run only on the first frame):
 
 ```rust
 impl eframe::App for DashboardApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if !self.hwnd_sent {
-            if let Some(handle) = ctx.viewport_id_for_input_focus()
-                .and_then(|_| /* native hwnd extraction via raw-window-handle */)
-            {
-                let _ = self.hwnd_tx.send(handle);
-                self.hwnd_sent = true;
+        if !self.hwnd_found {
+            // Wait one frame so the OS has actually created the window, then
+            // EnumWindows looking for our known title.
+            if let Some(hwnd) = find_hwnd_by_title(DASHBOARD_WINDOW_TITLE) {
+                *self.hwnd_slot.lock().unwrap() = Some(hwnd);
+                self.hwnd_found = true;
             }
+            // If not found this frame, retry next frame. Bounded by ~10 frames
+            // (≈170 ms at 60fps) in practice.
         }
         // ...render frame...
     }
 }
+
+/// Win32 EnumWindows callback that matches the supplied title and stops.
+fn find_hwnd_by_title(target: &str) -> Option<HWND> {
+    // Implementation: GetWindowTextW into a buffer, compare UTF-16 to target,
+    // return Some(hwnd) on match. Idiomatic Rust+windows-crate FFI.
+}
 ```
 
-We use the `raw-window-handle` crate (already a transitive dep of `eframe`/`winit`) to extract the underlying HWND from egui's viewport. The exact API call is decided in implementation; alternatives include `winit::window::Window::raw_window_handle()` or `egui::ViewportInfo`'s extensions.
+This is ugly but reliable: title-based lookup doesn't depend on private eframe internals, can't break across eframe version bumps, and the title is unique to this process (no other application uses "Claude usage tracker" as a window title — and even if another window with that title appeared, the worst case is a benign no-op).
 
-If HWND extraction fails on first frame: dashboard still works but raise-to-front is degraded to "we'll spawn a new window when the user clicks tray" (because `Some(handle) if !handle.join.is_finished()` becomes the only check — handle still alive → no-op). Acceptable fallback.
+If HWND extraction never succeeds (e.g., another process happens to have a window with the exact same title and we pick the wrong one): raise-to-front is degraded to "no-op when the dashboard window is already open." The tray's `Some(handle) if !handle.join.is_finished()` check still prevents spawning duplicate dashboards. Acceptable degraded mode.
+
+### Shutdown coordination
+
+The user's "Quit" path must close the dashboard window before the tray thread joins it. The existing Stage 3 Quit handler in `wndproc` becomes:
+
+```rust
+WM_COMMAND => {
+    if (wparam.0 & 0xFFFF) == IDM_QUIT {
+        with_state(hwnd, |state| {
+            // 1. Tell the polling thread to stop.
+            state.shutdown.store(true, Ordering::Relaxed);
+
+            // 2. If a dashboard is open, send it WM_CLOSE. The dashboard
+            //    thread's eframe::run_native sees the close request and
+            //    returns naturally, letting the JoinHandle complete.
+            if let Some(handle) = state.dashboard.lock().unwrap().as_ref() {
+                if let Some(dash_hwnd) = *handle.hwnd.lock().unwrap() {
+                    unsafe {
+                        let _ = PostMessageW(dash_hwnd, WM_CLOSE, WPARAM(0), LPARAM(0));
+                    }
+                }
+            }
+        });
+        icon::delete(hwnd);
+        unsafe { let _ = DestroyWindow(hwnd); }
+    }
+    LRESULT(0)
+}
+```
+
+In `tray::run()`, after `window::message_loop()` returns and we've joined the polling thread, we also join the dashboard thread (if any):
+
+```rust
+// After the message loop exits:
+if let Err(e) = poll_handle.join() {
+    tracing::warn!(error = ?e, "polling thread panicked");
+}
+// Take ownership of any dashboard handle that's still around and join it.
+// At this point we've already posted WM_CLOSE; this is just waiting for the
+// thread to finish unwinding.
+let dash_handle = state.dashboard.lock().unwrap().take();
+if let Some(handle) = dash_handle {
+    if let Err(e) = handle.join.join() {
+        tracing::warn!(error = ?e, "dashboard thread panicked");
+    }
+}
+```
+
+Note: at the point we want to join, `state` is held inside the now-destroyed window. We need an `Arc<Mutex<Option<DashboardHandle>>>` clone held by `tray::run` directly so we can join after the window goes away. Adjust the existing `run()` to clone `dashboard` before passing `state` into `Box::new(...)`.
+
+If the user closes the dashboard manually first, the join is essentially instant (thread already exited). If they Quit with the dashboard still open, the WM_CLOSE → eframe loop exit → thread exit chain runs in <100 ms typically. The whole-app shutdown stays bounded.
 
 ## Chart 1 — 5h cumulative-share
 
@@ -418,16 +501,18 @@ Range buttons render as `egui::SelectableLabel`s in a horizontal row above each 
 
 ```toml
 # Cargo.toml additions
-eframe = { version = "0.29", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+eframe = { version = "0.29", default-features = false, features = ["default_fonts", "glow"] }
 egui = "0.29"
 egui_plot = "0.29"
-raw-window-handle = "0.6"   # for HWND extraction from the egui viewport
 ```
 
 Notes on `eframe` features:
 - `default_fonts` — bundles a default font so we don't depend on system Segoe UI.
 - `glow` — uses OpenGL for rendering. Available on Windows out of the box.
-- The `wayland` / `x11` features are no-ops on Windows but `eframe` requires at least one selected on default-features=false; they cost nothing on this target.
+
+`winit` is accessed transitively through `eframe::egui_winit::winit` — no direct `winit` entry in `Cargo.toml`. The `EventLoopBuilderExtWindows` trait we need is at `eframe::egui_winit::winit::platform::windows`.
+
+`raw-window-handle` is no longer needed: HWND extraction goes through Win32 `EnumWindows`/`GetWindowTextW` instead, accessed via the existing `windows` crate (Stage 3 dependency).
 
 Added binary size (release): ~3 MB (mostly eframe + egui_plot). Acceptable for the CV-piece value.
 
@@ -455,7 +540,8 @@ let snapshot = AppSnapshot {
 | Layer | Failure | Behavior |
 |---|---|---|
 | `eframe::run_native` | Returns Err (window init failed) | Log error, thread exits, dashboard handle becomes `is_finished() == true`, next click spawns fresh attempt |
-| HWND extraction | Times out or returns invalid handle | Dashboard still renders; raise-to-front degrades to "thread-still-alive means no new spawn" |
+| `EnumWindows` HWND lookup | Doesn't find a matching window in any frame | `hwnd_slot` stays `None`; raise-to-front becomes a no-op; the thread-alive check prevents duplicate spawns. Dashboard still fully functional. |
+| Tray click before HWND is populated | First few frames after launch | `*handle.hwnd.lock() == None` → skip raise. The OS gives focus to newly created windows by default, so the user sees the dashboard appear anyway. |
 | `SharedSnapshot` write/read | Poisoned lock (writer panicked) | Recover: replace with a fresh `AppSnapshot::default()` and `tracing::warn!` |
 | Empty turns vec | No JSONL parsed yet | Charts show "No data yet — first poll in progress" placeholder text |
 | `caps.cap_5h == None` | No anchors observed | Chart 1 shows raw output tokens + banner; cap line hidden; peak KPIs show "—" |
@@ -475,6 +561,7 @@ The tray and polling thread are NEVER blocked by dashboard failures. Closing or 
 | `dashboard::chart_5h::cumulative_share_series` | Unit | Synthetic turns + cap; verify stepped output. ~3 tests. |
 | `dashboard::chart_weekly::cumulative_share_series` | Unit | Per-week reset behavior. ~3 tests. |
 | `dashboard::chart_daily::daily_aggregates` | Unit | Group-by-day correctness. ~2 tests. |
+| `dashboard::find_hwnd_by_title` | Manual / smoke | Win32 FFI — verify by running the .exe + checking that left-click-while-open raises the window. No automated test (would require spawning a real window in a test harness). |
 | Existing 64 Stage 1–5 tests | Regression | Must continue to pass. |
 
 Target: ~20 new tests, ~84 total.
@@ -528,6 +615,6 @@ Stage 6's shared-snapshot + dashboard module structure should not require redesi
 - **Exact font** — egui's default font on Windows is a generic sans-serif via the bundled `default_fonts`. We may swap to Segoe UI Variable for visual polish; decide after first usable build.
 - **Exact color palette** — using approximate Plotly defaults for now (#4f8cff blue, #ff8a4f orange, #888 grey). A more polished palette is a follow-up tweak.
 - **Whether `compute_kpis` is fast enough on a 1M-turn cache** — first profile on real data after wiring up. If it's slow, cache the result on the snapshot and only recompute when `turns` Arc changes identity. Probably fine without optimization.
-- **HWND extraction approach** — `raw-window-handle` 0.6 vs older `0.5` vs `winit`'s newer API. Decide in implementation.
 - **Whether to use `egui::CentralPanel` or `egui::SidePanel` layout for the KPI+3-charts arrangement** — visual decision; mockup in implementation.
 - **Initial window size** — proposed 1100×720, may tune.
+- **Eframe version pinning** — currently proposes 0.29. After Stage 6 ships, treat any eframe upgrade as a "verify the non-main-thread + EnumWindows-by-title contract still holds" task, since both depend on internals that aren't guaranteed stable across major versions.
