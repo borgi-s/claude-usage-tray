@@ -62,6 +62,14 @@ pub fn run(interval_secs: u64) -> Result<()> {
         tracing::warn!(error = ?e, "polling thread panicked");
     }
 
+    // Take + join the dashboard handle if one was ever created.
+    let dash = dashboard.lock().unwrap().take();
+    if let Some(handle) = dash {
+        if let Err(e) = handle.join.join() {
+            tracing::warn!(error = ?e, "dashboard thread panicked");
+        }
+    }
+
     Ok(())
 }
 

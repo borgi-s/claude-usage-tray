@@ -14,12 +14,12 @@ use windows::Win32::Foundation::{HMODULE, HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
-    DispatchMessageW, GetCursorPos, GetMessageW, GetWindowLongPtrW, PostQuitMessage,
+    DispatchMessageW, GetCursorPos, GetMessageW, GetWindowLongPtrW, PostMessageW, PostQuitMessage,
     RegisterClassExW, SetForegroundWindow, SetWindowLongPtrW, ShowWindow, TrackPopupMenu,
     TranslateMessage, CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, HICON, HMENU, HWND_MESSAGE,
     MF_STRING, MSG, SW_RESTORE, TPM_LEFTBUTTON, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WINDOW_STYLE,
-    WM_APP, WM_COMMAND, WM_DESTROY, WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY, WM_RBUTTONUP,
-    WNDCLASSEXW,
+    WM_APP, WM_CLOSE, WM_COMMAND, WM_DESTROY, WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY,
+    WM_RBUTTONUP, WNDCLASSEXW,
 };
 
 /// Custom message: shell sends this when the user interacts with the tray icon.
@@ -162,17 +162,23 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             LRESULT(0)
         }
         WM_COMMAND => {
-            // wparam low word = command ID.
             if (wparam.0 & 0xFFFF) == IDM_QUIT {
                 with_state(hwnd, |state| {
                     state.shutdown.store(true, Ordering::Relaxed);
+
+                    // Tell the dashboard to close, if it's open. The dashboard
+                    // thread's eframe::run_native returns naturally when its
+                    // window is closed, allowing the JoinHandle to complete.
+                    if let Some(handle) = state.dashboard.lock().unwrap().as_ref() {
+                        if let Some(hwnd_d) = *handle.hwnd.lock().unwrap() {
+                            unsafe {
+                                let _ = PostMessageW(hwnd_d.0, WM_CLOSE, WPARAM(0), LPARAM(0));
+                            }
+                        }
+                    }
                 });
                 icon::delete(hwnd);
-                // DestroyWindow triggers WM_DESTROY (PostQuitMessage) and
-                // WM_NCDESTROY (Box::from_raw reclaims TrayState).
-                unsafe {
-                    let _ = DestroyWindow(hwnd);
-                }
+                unsafe { let _ = DestroyWindow(hwnd); }
             }
             LRESULT(0)
         }
