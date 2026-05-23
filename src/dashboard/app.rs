@@ -13,6 +13,7 @@ pub struct DashboardApp {
     shared: SharedSnapshot,
     signals: Arc<DashboardSignals>,
     visible: bool,
+    ctx_published: bool,
     range_5h: Range,
     range_week: Range,
     range_daily: Range,
@@ -24,6 +25,7 @@ impl DashboardApp {
             shared,
             signals,
             visible: true,
+            ctx_published: false,
             range_5h: Range::D5,
             range_week: Range::D14,
             range_daily: Range::D14,
@@ -33,6 +35,14 @@ impl DashboardApp {
 
 impl eframe::App for DashboardApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // 0. Publish our Context once so the tray thread can request_repaint()
+        //    to wake us even while hidden.
+        if !self.ctx_published {
+            *self.signals.ctx.lock().unwrap() = Some(ctx.clone());
+            self.ctx_published = true;
+            tracing::debug!("dashboard: published egui context");
+        }
+
         // 1. App-quit: close the viewport so run_native returns + thread exits.
         if self.signals.quit_requested.load(Ordering::Relaxed) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -41,21 +51,27 @@ impl eframe::App for DashboardApp {
 
         // 2. Tray asked us to show: un-hide + focus.
         if self.signals.show_requested.swap(false, Ordering::Relaxed) {
+            tracing::debug!("dashboard: show_requested seen, un-hiding");
             self.visible = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
 
-        // 3. User clicked the X: cancel the real close, hide instead.
-        if ctx.input(|i| i.viewport().close_requested()) {
+        // 3. User clicked the X: cancel the real close, hide instead. Only act
+        //    when currently visible — a stale close_requested on a freshly-shown
+        //    window must not immediately re-hide it.
+        if self.visible && ctx.input(|i| i.viewport().close_requested()) {
+            tracing::debug!("dashboard: close intercepted, hiding");
             self.visible = false;
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
         }
 
         // 4. When hidden, skip the heavy chart render; just poll the flags.
+        //    request_repaint_after keeps us ticking even if the cross-thread
+        //    wake doesn't arrive, as a belt-and-braces fallback.
         if !self.visible {
-            ctx.request_repaint_after(Duration::from_millis(150));
+            ctx.request_repaint_after(Duration::from_millis(200));
             return;
         }
 

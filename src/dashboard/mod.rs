@@ -15,8 +15,8 @@ pub mod series;
 
 use crate::dashboard::app::DashboardApp;
 use crate::shared::SharedSnapshot;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
 pub const DASHBOARD_WINDOW_TITLE: &str = "Claude usage tracker";
@@ -29,6 +29,29 @@ pub struct DashboardSignals {
     /// Tray sets true on Quit so the dashboard closes its viewport and the
     /// thread exits, allowing a clean join.
     pub quit_requested: AtomicBool,
+    /// The dashboard publishes a clone of its egui Context here on its first
+    /// frame. The tray uses it to `request_repaint()` cross-thread, which wakes
+    /// the event loop even when the window is hidden/occluded (and would
+    /// otherwise not be ticking to notice `show_requested`).
+    pub ctx: Mutex<Option<egui::Context>>,
+}
+
+impl DashboardSignals {
+    /// Tray-side helper: request show + wake the (possibly idle) event loop.
+    pub fn request_show(&self) {
+        self.show_requested.store(true, Ordering::Relaxed);
+        if let Some(ctx) = self.ctx.lock().unwrap().as_ref() {
+            ctx.request_repaint();
+        }
+    }
+
+    /// Tray-side helper: request quit + wake the loop so it sees the flag.
+    pub fn request_quit(&self) {
+        self.quit_requested.store(true, Ordering::Relaxed);
+        if let Some(ctx) = self.ctx.lock().unwrap().as_ref() {
+            ctx.request_repaint();
+        }
+    }
 }
 
 pub struct DashboardHandle {

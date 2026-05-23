@@ -168,11 +168,9 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
 
                     // Tell the dashboard thread (if any) to close its viewport
                     // so eframe::run_native returns and the thread can join.
+                    // request_quit also wakes the (possibly hidden) event loop.
                     if let Some(handle) = state.dashboard.lock().unwrap().as_ref() {
-                        handle
-                            .signals
-                            .quit_requested
-                            .store(true, std::sync::atomic::Ordering::Relaxed);
+                        handle.signals.request_quit();
                     }
                 });
                 icon::delete(hwnd);
@@ -384,11 +382,9 @@ fn on_left_click(state: &mut TrayState) {
     let mut guard = state.dashboard.lock().unwrap();
     match guard.as_ref() {
         Some(handle) if !handle.join.is_finished() => {
-            // Dashboard thread alive — ask it to un-hide + focus.
-            handle
-                .signals
-                .show_requested
-                .store(true, std::sync::atomic::Ordering::Relaxed);
+            // Dashboard thread alive — ask it to un-hide + focus (and wake the
+            // event loop, which may be idle while the window is hidden).
+            handle.signals.request_show();
         }
         _ => {
             // No dashboard yet (first click) — spawn the single persistent thread.
