@@ -24,6 +24,8 @@ User is a **Rust beginner** (zero prior Rust experience as of 2026-05-22). Expla
 - **Stage 5 plan:** `docs/superpowers/plans/2026-05-23-stage-5-calibration.md` — task plan. **Shipped 2026-05-23 (tag `v0.5.0`).**
 - **Stage 6 spec:** `docs/superpowers/specs/2026-05-23-stage-6-dashboard-design.md` — native egui dashboard window design.
 - **Stage 6 plan:** `docs/superpowers/plans/2026-05-23-stage-6-dashboard.md` — task plan. **Shipped 2026-05-23 (tag `v0.6.0`).**
+- **Stage 7 spec:** `docs/superpowers/specs/2026-05-23-stage-7-supabase-sync-design.md` — Supabase Storage upload, parquet/format-parity findings, per-user layout.
+- **Stage 7 plan:** `docs/superpowers/plans/2026-05-23-stage-7-supabase-sync.md` — task plan.
 
 Stages 6.5-8 will get their own implementation plans when each is ready to start.
 
@@ -38,7 +40,7 @@ Stages 6.5-8 will get their own implementation plans when each is ready to start
 | 5 | Calibration math (port from Python's `caps.global_cap_from_anchors`) | ✅ Shipped — tag `v0.5.0`, pushed to GitHub |
 | 6 | egui dashboard window | ✅ Shipped — tag `v0.6.0`, pushed to GitHub |
 | 6.5 | Update notifier (GitHub Releases API) | Pending |
-| 7 | Supabase Storage upload | Pending |
+| 7 | Supabase Storage upload | 🚧 In progress (branch stage-7-supabase-sync) |
 | 8 | Streamlit feature parity (sessions table, filters, calibration history) | Pending |
 
 ## Tech stack (locked in design)
@@ -52,6 +54,8 @@ Stages 6.5-8 will get their own implementation plans when each is ready to start
 - Logging: `tracing` + `tracing-subscriber` (added Stage 2)
 - Win32: `windows` crate (added Stage 3)
 - GUI: `eframe` + `egui` + `egui_plot` (added Stage 6)
+- Parquet/Arrow: `arrow` + `parquet` (added Stage 7, scoped to the sync upload path only — note: revisits the original "no parquet" exclusion, accepted deliberately)
+- Env config: `dotenvy` (added Stage 7, reads `.env` for Supabase keys)
 
 **Excluded by design:** tokio, polars equivalents, parquet, iced/Slint/other GUI libs, cross-compilation, Mac/Linux ports.
 
