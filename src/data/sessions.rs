@@ -105,6 +105,50 @@ pub fn session_summaries(turns: &[Turn]) -> Vec<SessionSummary> {
     out
 }
 
+use std::cmp::Ordering;
+
+/// How the sessions table is ordered. Selected in the table's sort control.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortKey {
+    Chronological, // by start ascending
+    PeakCtx,       // by peak_context_pct descending
+    TotalCost,     // by total_cost_weighted descending
+}
+
+/// Sort `sessions` in place per `key`. Descending modes use a NaN-safe
+/// comparison (NaN never appears here, but partial_cmp must be unwrapped).
+pub fn sort_sessions(sessions: &mut [SessionSummary], key: SortKey) {
+    match key {
+        SortKey::Chronological => sessions.sort_by_key(|a| a.start),
+        SortKey::PeakCtx => sessions.sort_by(|a, b| {
+            b.peak_context_pct
+                .partial_cmp(&a.peak_context_pct)
+                .unwrap_or(Ordering::Equal)
+        }),
+        SortKey::TotalCost => sessions.sort_by(|a, b| {
+            b.total_cost_weighted
+                .partial_cmp(&a.total_cost_weighted)
+                .unwrap_or(Ordering::Equal)
+        }),
+    }
+}
+
+/// Drop "degenerate" sessions (fewer than `min_turns` main turns OR shorter
+/// than `min_duration_s`). Returns `(kept, hidden_count)`.
+pub fn hide_degenerate(
+    sessions: Vec<SessionSummary>,
+    min_turns: usize,
+    min_duration_s: f64,
+) -> (Vec<SessionSummary>, usize) {
+    let total = sessions.len();
+    let kept: Vec<SessionSummary> = sessions
+        .into_iter()
+        .filter(|s| s.main_turns >= min_turns && s.duration_s >= min_duration_s)
+        .collect();
+    let hidden = total - kept.len();
+    (kept, hidden)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,8 +216,26 @@ mod tests {
     #[test]
     fn session_summaries_groups_and_aggregates_main_rows() {
         let turns = vec![
-            trow("s1", utc(2026, 5, 24, 10, 0), false, None, "/home/u/proj", "claude-opus-4-7", 100, 10),
-            trow("s1", utc(2026, 5, 24, 11, 0), false, None, "/home/u/proj", "claude-opus-4-7", 300, 20),
+            trow(
+                "s1",
+                utc(2026, 5, 24, 10, 0),
+                false,
+                None,
+                "/home/u/proj",
+                "claude-opus-4-7",
+                100,
+                10,
+            ),
+            trow(
+                "s1",
+                utc(2026, 5, 24, 11, 0),
+                false,
+                None,
+                "/home/u/proj",
+                "claude-opus-4-7",
+                300,
+                20,
+            ),
         ];
         let out = session_summaries(&turns);
         assert_eq!(out.len(), 1);
@@ -184,7 +246,7 @@ mod tests {
         assert_eq!(s.main_turns, 2);
         assert_eq!(s.subagent_count, 0);
         assert_eq!(s.peak_prompt_tokens, 300); // max(100, 300)
-        // peak ctx% = 300 / 1_000_000 (opus 4-7 window)
+                                               // peak ctx% = 300 / 1_000_000 (opus 4-7 window)
         assert!((s.peak_context_pct - 300.0 / 1_000_000.0).abs() < 1e-12);
         // cost_weighted: input weight 1.0, output weight 5.0 → 100+50 and 300+100
         assert!((s.main_cost_weighted - (150.0 + 400.0)).abs() < 1e-9);
@@ -194,17 +256,53 @@ mod tests {
     #[test]
     fn session_summaries_joins_subagents_by_distinct_id() {
         let turns = vec![
-            trow("s1", utc(2026, 5, 24, 10, 0), false, None, "/p", "claude-sonnet-4-5", 100, 0),
-            trow("s1", utc(2026, 5, 24, 10, 5), true, Some("a1"), "/p", "claude-sonnet-4-5", 0, 50),
-            trow("s1", utc(2026, 5, 24, 10, 6), true, Some("a1"), "/p", "claude-sonnet-4-5", 0, 50),
-            trow("s1", utc(2026, 5, 24, 10, 7), true, Some("a2"), "/p", "claude-sonnet-4-5", 0, 50),
+            trow(
+                "s1",
+                utc(2026, 5, 24, 10, 0),
+                false,
+                None,
+                "/p",
+                "claude-sonnet-4-5",
+                100,
+                0,
+            ),
+            trow(
+                "s1",
+                utc(2026, 5, 24, 10, 5),
+                true,
+                Some("a1"),
+                "/p",
+                "claude-sonnet-4-5",
+                0,
+                50,
+            ),
+            trow(
+                "s1",
+                utc(2026, 5, 24, 10, 6),
+                true,
+                Some("a1"),
+                "/p",
+                "claude-sonnet-4-5",
+                0,
+                50,
+            ),
+            trow(
+                "s1",
+                utc(2026, 5, 24, 10, 7),
+                true,
+                Some("a2"),
+                "/p",
+                "claude-sonnet-4-5",
+                0,
+                50,
+            ),
         ];
         let out = session_summaries(&turns);
         assert_eq!(out.len(), 1);
         let s = &out[0];
         assert_eq!(s.main_turns, 1);
         assert_eq!(s.subagent_count, 2); // a1, a2 distinct
-        // subagent cost = 3 rows * output 50 * weight 5.0 = 750
+                                         // subagent cost = 3 rows * output 50 * weight 5.0 = 750
         assert!((s.subagent_cost_weighted - 750.0).abs() < 1e-9);
         // total = main (100*1.0) + sub (750)
         assert!((s.total_cost_weighted - (100.0 + 750.0)).abs() < 1e-9);
@@ -212,17 +310,42 @@ mod tests {
 
     #[test]
     fn session_summaries_drops_session_with_only_subagent_rows() {
-        let turns = vec![
-            trow("s1", utc(2026, 5, 24, 10, 0), true, Some("a1"), "/p", "m", 0, 50),
-        ];
+        let turns = vec![trow(
+            "s1",
+            utc(2026, 5, 24, 10, 0),
+            true,
+            Some("a1"),
+            "/p",
+            "m",
+            0,
+            50,
+        )];
         assert!(session_summaries(&turns).is_empty());
     }
 
     #[test]
     fn session_summaries_last_main_sets_project_and_model() {
         let turns = vec![
-            trow("s1", utc(2026, 5, 24, 10, 0), false, None, "/old", "claude-haiku-4-5", 10, 0),
-            trow("s1", utc(2026, 5, 24, 12, 0), false, None, "/new", "claude-opus-4-7", 10, 0),
+            trow(
+                "s1",
+                utc(2026, 5, 24, 10, 0),
+                false,
+                None,
+                "/old",
+                "claude-haiku-4-5",
+                10,
+                0,
+            ),
+            trow(
+                "s1",
+                utc(2026, 5, 24, 12, 0),
+                false,
+                None,
+                "/new",
+                "claude-opus-4-7",
+                10,
+                0,
+            ),
         ];
         let s = &session_summaries(&turns)[0];
         assert_eq!(s.project_cwd, "/new");
@@ -232,11 +355,97 @@ mod tests {
     #[test]
     fn session_summaries_sorted_by_start_ascending() {
         let turns = vec![
-            trow("late", utc(2026, 5, 24, 15, 0), false, None, "/p", "m", 1, 0),
-            trow("early", utc(2026, 5, 24, 9, 0), false, None, "/p", "m", 1, 0),
+            trow(
+                "late",
+                utc(2026, 5, 24, 15, 0),
+                false,
+                None,
+                "/p",
+                "m",
+                1,
+                0,
+            ),
+            trow(
+                "early",
+                utc(2026, 5, 24, 9, 0),
+                false,
+                None,
+                "/p",
+                "m",
+                1,
+                0,
+            ),
         ];
         let out = session_summaries(&turns);
         assert_eq!(out[0].session_id, "early");
         assert_eq!(out[1].session_id, "late");
+    }
+
+    fn summary(
+        id: &str,
+        start: DateTime<Utc>,
+        main_turns: usize,
+        duration_s: f64,
+        ctx: f64,
+        total: f64,
+    ) -> SessionSummary {
+        SessionSummary {
+            session_id: id.to_string(),
+            start,
+            end: start,
+            project_cwd: String::new(),
+            model: String::new(),
+            main_turns,
+            subagent_count: 0,
+            peak_context_pct: ctx,
+            peak_prompt_tokens: 0,
+            main_cost_weighted: total,
+            subagent_cost_weighted: 0.0,
+            total_cost_weighted: total,
+            duration_s,
+        }
+    }
+
+    #[test]
+    fn sort_sessions_peak_ctx_descending() {
+        let mut v = vec![
+            summary("lo", utc(2026, 5, 24, 9, 0), 10, 100.0, 0.1, 1.0),
+            summary("hi", utc(2026, 5, 24, 8, 0), 10, 100.0, 0.9, 1.0),
+        ];
+        sort_sessions(&mut v, SortKey::PeakCtx);
+        assert_eq!(v[0].session_id, "hi");
+    }
+
+    #[test]
+    fn sort_sessions_total_cost_descending() {
+        let mut v = vec![
+            summary("cheap", utc(2026, 5, 24, 9, 0), 10, 100.0, 0.1, 1.0),
+            summary("pricey", utc(2026, 5, 24, 8, 0), 10, 100.0, 0.1, 9.0),
+        ];
+        sort_sessions(&mut v, SortKey::TotalCost);
+        assert_eq!(v[0].session_id, "pricey");
+    }
+
+    #[test]
+    fn sort_sessions_chronological_ascending() {
+        let mut v = vec![
+            summary("b", utc(2026, 5, 24, 15, 0), 10, 100.0, 0.1, 1.0),
+            summary("a", utc(2026, 5, 24, 9, 0), 10, 100.0, 0.1, 1.0),
+        ];
+        sort_sessions(&mut v, SortKey::Chronological);
+        assert_eq!(v[0].session_id, "a");
+    }
+
+    #[test]
+    fn hide_degenerate_drops_short_and_low_turn_sessions() {
+        let v = vec![
+            summary("keep", utc(2026, 5, 24, 9, 0), 10, 120.0, 0.1, 1.0),
+            summary("few_turns", utc(2026, 5, 24, 9, 0), 2, 120.0, 0.1, 1.0),
+            summary("too_short", utc(2026, 5, 24, 9, 0), 10, 30.0, 0.1, 1.0),
+        ];
+        let (kept, hidden) = hide_degenerate(v, 5, 60.0);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].session_id, "keep");
+        assert_eq!(hidden, 2);
     }
 }
