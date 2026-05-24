@@ -193,7 +193,12 @@ fn polling_loop(
             let _ = PostMessageW(hwnd.0, WM_APP_POLL, WPARAM(0), LPARAM(0));
         }
 
-        maybe_check_for_update(&mut app_state, hwnd, &update_tx);
+        // Skip the (blocking, ~10s) update check if we're already shutting down,
+        // so Quit isn't delayed by an in-flight GitHub fetch. The check is gated
+        // to once/24h internally; this only avoids starting it during shutdown.
+        if !shutdown.load(Ordering::Relaxed) {
+            maybe_check_for_update(&mut app_state, hwnd, &update_tx);
+        }
 
         sleep_interruptible(&shutdown, fetch_at, interval);
     }
