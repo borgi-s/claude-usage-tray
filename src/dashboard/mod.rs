@@ -9,6 +9,7 @@ pub mod bands;
 pub mod chart_5h;
 pub mod chart_daily;
 pub mod chart_weekly;
+pub mod filter_bar;
 pub mod filters;
 pub mod kpi;
 pub mod range;
