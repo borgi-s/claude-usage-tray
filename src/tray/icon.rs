@@ -12,8 +12,8 @@ use windows::Win32::Graphics::GdiPlus::{
     StringAlignmentCenter, TextRenderingHintSingleBitPerPixelGridFit, UnitPixel,
 };
 use windows::Win32::UI::Shell::{
-    Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
-    NOTIFYICONDATAW,
+    Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_INFO, NIM_ADD, NIM_DELETE,
+    NIM_MODIFY, NOTIFYICONDATAW,
 };
 use windows::Win32::UI::WindowsAndMessaging::HICON;
 
@@ -79,6 +79,36 @@ fn base_notify_data(
     // Ensure null-terminator.
     data.szTip[n] = 0;
     data
+}
+
+/// Copy a &str as UTF-16 into a fixed-size wide buffer, truncating and
+/// null-terminating to fit (matches the szTip handling in `base_notify_data`).
+fn copy_wide(dst: &mut [u16], s: &str) {
+    let wide: Vec<u16> = s.encode_utf16().collect();
+    let n = wide.len().min(dst.len() - 1);
+    dst[..n].copy_from_slice(&wide[..n]);
+    dst[n] = 0;
+}
+
+/// Show a balloon (toast) notification on the existing tray icon. Best-effort:
+/// logs a warning on failure. Only NIF_INFO is set, so the icon/tooltip are
+/// left unchanged.
+pub fn show_balloon(hwnd: HWND, title: &str, msg: &str) {
+    let mut data = NOTIFYICONDATAW {
+        cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+        hWnd: hwnd,
+        uID: 1,
+        uFlags: NIF_INFO,
+        dwInfoFlags: NIIF_INFO,
+        ..Default::default()
+    };
+    copy_wide(&mut data.szInfo, msg);
+    copy_wide(&mut data.szInfoTitle, title);
+    // SAFETY: data is on the stack and lives for the duration of the call.
+    let ok = unsafe { Shell_NotifyIconW(NIM_MODIFY, &data) };
+    if !ok.as_bool() {
+        tracing::warn!("Shell_NotifyIcon NIM_MODIFY (balloon) failed");
+    }
 }
 
 /// Map a util value in [0.0, ∞) to an RGB color using the anchored gradient:
