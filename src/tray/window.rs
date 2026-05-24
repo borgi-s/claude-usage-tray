@@ -307,6 +307,10 @@ fn drain_update_events(hwnd: HWND, state: &mut TrayState) {
             UpdateEvent::Result { check, notify } => {
                 if check.is_newer {
                     state.available_update = Some(check.latest.clone());
+                } else {
+                    // No longer newer (e.g. upgraded in place, or release yanked) —
+                    // drop the stale menu item.
+                    state.available_update = None;
                 }
                 if notify {
                     if check.is_newer {
@@ -341,7 +345,7 @@ fn open_release_page(state: &mut TrayState) {
         .collect();
     let verb: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
     // SAFETY: both buffers are null-terminated and live for the call; null hwnd/params/dir are valid.
-    unsafe {
+    let ret = unsafe {
         ShellExecuteW(
             None,
             PCWSTR(verb.as_ptr()),
@@ -349,7 +353,11 @@ fn open_release_page(state: &mut TrayState) {
             PCWSTR::null(),
             PCWSTR::null(),
             SW_SHOWNORMAL,
-        );
+        )
+    };
+    // ShellExecuteW returns an HINSTANCE; a value <= 32 indicates failure.
+    if ret.0 as usize <= 32 {
+        tracing::warn!(url = %release.html_url, "ShellExecuteW failed to open release page");
     }
 }
 
