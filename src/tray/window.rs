@@ -4,28 +4,39 @@ use crate::calibration::live::LiveUtil;
 use crate::render::{format_duration, LastStatus};
 use crate::tray::icon::{self, IconRenderer};
 use crate::tray::poller::{PollEvent, WM_APP_POLL};
+use crate::updater::{self, ReleaseInfo, UpdateEvent};
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Duration as ChronoDuration, Local, Utc};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
+use std::time::Instant;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{HMODULE, HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
-    DispatchMessageW, GetCursorPos, GetMessageW, GetWindowLongPtrW, PostQuitMessage,
+    DispatchMessageW, GetCursorPos, GetMessageW, GetWindowLongPtrW, PostMessageW, PostQuitMessage,
     RegisterClassExW, SetForegroundWindow, SetWindowLongPtrW, TrackPopupMenu, TranslateMessage,
-    CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, HICON, HMENU, HWND_MESSAGE, MF_STRING, MSG,
-    TPM_LEFTBUTTON, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_COMMAND, WM_DESTROY,
-    WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY, WM_RBUTTONUP, WNDCLASSEXW,
+    CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, HICON, HMENU, HWND_MESSAGE, MF_SEPARATOR,
+    MF_STRING, MSG, SW_SHOWNORMAL, TPM_LEFTBUTTON, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WINDOW_STYLE,
+    WM_APP, WM_COMMAND, WM_DESTROY, WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY, WM_RBUTTONUP,
+    WNDCLASSEXW,
 };
 
 /// Custom message: shell sends this when the user interacts with the tray icon.
 pub const WM_APP_TRAYICON: u32 = WM_APP + 2;
 
+/// Custom message: an update-checking thread posted a new UpdateEvent.
+pub const WM_APP_UPDATE: u32 = WM_APP + 3;
+
 /// Quit menu item ID.
 pub const IDM_QUIT: usize = 1;
+/// "Update available" menu item ID.
+pub const IDM_UPDATE: usize = 2;
+/// "Check for updates now" menu item ID.
+pub const IDM_CHECK_UPDATES: usize = 3;
 
 /// Window class name (UTF-16, null-terminated).
 const CLASS_NAME: &[u16] = &[
@@ -48,6 +59,10 @@ pub struct TrayState {
     pub last_hourly_week: Option<[f64; 24]>,
     pub shared: crate::shared::SharedSnapshot,
     pub dashboard: std::sync::Arc<std::sync::Mutex<Option<crate::dashboard::DashboardHandle>>>,
+    pub update_rx: Receiver<UpdateEvent>,
+    pub update_tx: Sender<UpdateEvent>,
+    pub available_update: Option<ReleaseInfo>,
+    pub manual_check_history: Vec<Instant>,
 }
 
 impl Drop for TrayState {
@@ -160,22 +175,35 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             }
             LRESULT(0)
         }
+        WM_APP_UPDATE => {
+            with_state(hwnd, |state| drain_update_events(hwnd, state));
+            LRESULT(0)
+        }
         WM_COMMAND => {
-            if (wparam.0 & 0xFFFF) == IDM_QUIT {
-                with_state(hwnd, |state| {
-                    state.shutdown.store(true, Ordering::Relaxed);
+            match wparam.0 & 0xFFFF {
+                id if id == IDM_QUIT => {
+                    with_state(hwnd, |state| {
+                        state.shutdown.store(true, Ordering::Relaxed);
 
-                    // Tell the dashboard thread (if any) to close its viewport
-                    // so eframe::run_native returns and the thread can join.
-                    // request_quit also wakes the (possibly hidden) event loop.
-                    if let Some(handle) = state.dashboard.lock().unwrap().as_ref() {
-                        handle.signals.request_quit();
+                        // Tell the dashboard thread (if any) to close its viewport
+                        // so eframe::run_native returns and the thread can join.
+                        // request_quit also wakes the (possibly hidden) event loop.
+                        if let Some(handle) = state.dashboard.lock().unwrap().as_ref() {
+                            handle.signals.request_quit();
+                        }
+                    });
+                    icon::delete(hwnd);
+                    unsafe {
+                        let _ = DestroyWindow(hwnd);
                     }
-                });
-                icon::delete(hwnd);
-                unsafe {
-                    let _ = DestroyWindow(hwnd);
                 }
+                id if id == IDM_UPDATE => {
+                    with_state(hwnd, open_release_page);
+                }
+                id if id == IDM_CHECK_UPDATES => {
+                    with_state(hwnd, |state| trigger_manual_check(hwnd, state));
+                }
+                _ => {}
             }
             LRESULT(0)
         }
@@ -271,6 +299,96 @@ fn drain_and_redraw(hwnd: HWND, state: &mut TrayState) {
     }
 }
 
+/// Drain UpdateEvents posted by a checking thread; update menu state + balloons.
+/// The UI thread never touches state.json — `notify` was decided by the sender.
+fn drain_update_events(hwnd: HWND, state: &mut TrayState) {
+    while let Ok(ev) = state.update_rx.try_recv() {
+        match ev {
+            UpdateEvent::Result { check, notify } => {
+                if check.is_newer {
+                    state.available_update = Some(check.latest.clone());
+                }
+                if notify {
+                    if check.is_newer {
+                        let body =
+                            format!("v{} \u{00b7} click the tray to open", check.latest.version);
+                        icon::show_balloon(hwnd, "Update available", &body);
+                    } else {
+                        let body = format!("You're up to date (v{})", env!("CARGO_PKG_VERSION"));
+                        icon::show_balloon(hwnd, "Claude usage tray", &body);
+                    }
+                }
+            }
+            UpdateEvent::Failed { manual, msg } => {
+                if manual {
+                    icon::show_balloon(hwnd, "Claude usage tray", "Update check failed");
+                }
+                tracing::warn!(error = %msg, "update check failed");
+            }
+        }
+    }
+}
+
+/// Open the stored release page in the default browser via ShellExecuteW.
+fn open_release_page(state: &mut TrayState) {
+    let Some(release) = state.available_update.as_ref() else {
+        return;
+    };
+    let url: Vec<u16> = release
+        .html_url
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    let verb: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
+    // SAFETY: both buffers are null-terminated and live for the call; null hwnd/params/dir are valid.
+    unsafe {
+        ShellExecuteW(
+            None,
+            PCWSTR(verb.as_ptr()),
+            PCWSTR(url.as_ptr()),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        );
+    }
+}
+
+/// Enforce the manual-check rate limit, then spawn a one-shot checking thread.
+fn trigger_manual_check(hwnd: HWND, state: &mut TrayState) {
+    let now = Instant::now();
+    if !updater::manual_check_allowed(&mut state.manual_check_history, now) {
+        icon::show_balloon(
+            hwnd,
+            "Claude usage tray",
+            "Update-check limit reached \u{2014} try again later",
+        );
+        return;
+    }
+    let tx = state.update_tx.clone();
+    let send_hwnd = crate::tray::poller::SendHwnd(hwnd);
+    std::thread::spawn(move || {
+        // Force the closure to capture the whole `SendHwnd` (which is `Send`)
+        // rather than the inner non-Send `HWND` via disjoint capture.
+        let send_hwnd = send_hwnd;
+        let current = updater::current_version();
+        let ev = match updater::check_latest(&current, true) {
+            Ok(check) => UpdateEvent::Result {
+                check,
+                notify: true,
+            },
+            Err(e) => UpdateEvent::Failed {
+                manual: true,
+                msg: e.to_string(),
+            },
+        };
+        let _ = tx.send(ev);
+        // SAFETY: PostMessageW is thread-safe; the HWND is valid until shutdown.
+        unsafe {
+            let _ = PostMessageW(send_hwnd.0, WM_APP_UPDATE, WPARAM(0), LPARAM(0));
+        }
+    });
+}
+
 /// Format the tooltip text (UTF-16, null-terminated, <=127 chars per szTip cap).
 pub(crate) fn format_tooltip(
     status: &LastStatus,
@@ -360,8 +478,25 @@ fn show_context_menu(hwnd: HWND) {
         tracing::warn!("CreatePopupMenu failed");
         return;
     }
-    let quit_label: Vec<u16> = encode_utf16("Quit");
+    // Read what we need from state up front (the menu is built outside `with_state`).
+    let mut update_label: Option<Vec<u16>> = None;
+    with_state(hwnd, |state| {
+        if let Some(rel) = state.available_update.as_ref() {
+            update_label = Some(encode_utf16(&format!(
+                "Update available \u{2014} v{}",
+                rel.version
+            )));
+        }
+    });
+
+    let check_label = encode_utf16("Check for updates now");
+    let quit_label = encode_utf16("Quit");
     unsafe {
+        if let Some(label) = update_label.as_ref() {
+            let _ = AppendMenuW(hmenu, MF_STRING, IDM_UPDATE, PCWSTR(label.as_ptr()));
+            let _ = AppendMenuW(hmenu, MF_SEPARATOR, 0, PCWSTR::null());
+        }
+        let _ = AppendMenuW(hmenu, MF_STRING, IDM_CHECK_UPDATES, PCWSTR(check_label.as_ptr()));
         let _ = AppendMenuW(hmenu, MF_STRING, IDM_QUIT, PCWSTR(quit_label.as_ptr()));
         let _ = TrackPopupMenu(
             hmenu,

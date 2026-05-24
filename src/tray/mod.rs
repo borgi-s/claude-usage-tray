@@ -28,6 +28,7 @@ pub fn run(interval_secs: u64) -> Result<()> {
 
     let shutdown = Arc::new(AtomicBool::new(false));
     let (tx, rx) = mpsc::channel();
+    let (update_tx, update_rx) = mpsc::channel();
 
     let state = Box::new(window::TrayState {
         last_sample: None,
@@ -42,6 +43,10 @@ pub fn run(interval_secs: u64) -> Result<()> {
         last_hourly_week: None,
         shared: shared.clone(),
         dashboard: dashboard.clone(),
+        update_rx,
+        update_tx,
+        available_update: None,
+        manual_check_history: Vec::new(),
     });
 
     let hwnd = window::create(hinst, state)?;
