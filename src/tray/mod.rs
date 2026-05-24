@@ -44,7 +44,7 @@ pub fn run(interval_secs: u64) -> Result<()> {
         shared: shared.clone(),
         dashboard: dashboard.clone(),
         update_rx,
-        update_tx,
+        update_tx: update_tx.clone(),
         available_update: None,
         manual_check_history: Vec::new(),
     });
@@ -63,6 +63,7 @@ pub fn run(interval_secs: u64) -> Result<()> {
         shutdown.clone(),
         send_hwnd,
         tx,
+        update_tx,
         shared.clone(),
     );
 

@@ -7,6 +7,8 @@ use crate::poll::poll_once;
 use crate::render::LastStatus;
 use crate::shared::snapshot::{compute_kpis, AppSnapshot};
 use crate::shared::SharedSnapshot;
+use crate::updater::{self, UpdateEvent};
+use chrono::Duration as ChronoDuration;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
@@ -67,10 +69,11 @@ pub fn spawn(
     shutdown: Arc<AtomicBool>,
     hwnd: SendHwnd,
     tx: Sender<PollEvent>,
+    update_tx: Sender<UpdateEvent>,
     shared: SharedSnapshot,
 ) -> JoinHandle<()> {
     let interval = Duration::from_secs(interval_secs);
-    thread::spawn(move || polling_loop(creds, interval, shutdown, hwnd, tx, shared))
+    thread::spawn(move || polling_loop(creds, interval, shutdown, hwnd, tx, update_tx, shared))
 }
 
 fn polling_loop(
@@ -79,12 +82,16 @@ fn polling_loop(
     shutdown: Arc<AtomicBool>,
     hwnd: SendHwnd,
     tx: Sender<PollEvent>,
+    update_tx: Sender<UpdateEvent>,
     shared: SharedSnapshot,
 ) {
     tracing::info!(
         interval_secs = interval.as_secs(),
         "polling thread starting"
     );
+
+    // Stage 6.5: this thread is the SOLE writer of state.json. Load once, keep in memory.
+    let mut app_state = crate::state::load();
 
     // Track the last successful sample so the dashboard's shared snapshot can
     // surface it between polls even when the most recent poll was 429/error.
@@ -186,6 +193,8 @@ fn polling_loop(
             let _ = PostMessageW(hwnd.0, WM_APP_POLL, WPARAM(0), LPARAM(0));
         }
 
+        maybe_check_for_update(&mut app_state, hwnd, &update_tx);
+
         sleep_interruptible(&shutdown, fetch_at, interval);
     }
 
@@ -243,6 +252,52 @@ fn compute_calibration_with_turns() -> (PollCalibration, Arc<Vec<Turn>>) {
         },
         turns_arc,
     )
+}
+
+/// Gated daily GitHub update check. Sole writer of state.json. Persists
+/// `last_check` (even on failure) so a failed check still throttles to daily;
+/// computes the once-per-version `notify` flag and persists `last_notified_version`.
+fn maybe_check_for_update(
+    app_state: &mut crate::state::AppState,
+    hwnd: SendHwnd,
+    update_tx: &Sender<UpdateEvent>,
+) {
+    let due = match app_state.update.last_check {
+        None => true,
+        Some(t) => chrono::Utc::now() - t >= ChronoDuration::hours(24),
+    };
+    if !due {
+        return;
+    }
+
+    app_state.update.last_check = Some(chrono::Utc::now());
+    let current = updater::current_version();
+
+    match updater::check_latest(&current, false) {
+        Ok(check) => {
+            let new_version = check.latest.version.to_string();
+            let notify = check.is_newer
+                && app_state.update.last_notified_version.as_deref() != Some(new_version.as_str());
+            if notify {
+                app_state.update.last_notified_version = Some(new_version);
+            }
+            if let Err(e) = crate::state::save(app_state) {
+                tracing::warn!(error = %e, "failed to persist state.json");
+            }
+            let _ = update_tx.send(UpdateEvent::Result { check, notify });
+            // SAFETY: PostMessageW is thread-safe; the HWND is valid until shutdown.
+            unsafe {
+                let _ = PostMessageW(hwnd.0, crate::tray::window::WM_APP_UPDATE, WPARAM(0), LPARAM(0));
+            }
+        }
+        Err(e) => {
+            // Persist last_check anyway so we don't retry until tomorrow.
+            if let Err(se) = crate::state::save(app_state) {
+                tracing::warn!(error = %se, "failed to persist state.json");
+            }
+            tracing::warn!(error = %e, "auto update check failed");
+        }
+    }
 }
 
 fn sleep_interruptible(shutdown: &Arc<AtomicBool>, fetch_at: Instant, interval: Duration) {
