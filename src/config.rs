@@ -31,3 +31,60 @@ pub const COST_WEIGHT_INPUT: f64 = 1.0;
 pub const COST_WEIGHT_CACHE_CREATION: f64 = 1.25;
 pub const COST_WEIGHT_CACHE_READ: f64 = 0.1;
 pub const COST_WEIGHT_OUTPUT: f64 = 5.0;
+
+/// Per-model context window in tokens. Prefix-matched against the model
+/// string; the FIRST matching entry wins, so more specific prefixes must come
+/// before shorter ones (e.g. `claude-sonnet-4-6` before `claude-sonnet-4`).
+/// Mirrors the Python project's `config.MODEL_CONTEXT_WINDOWS`.
+pub const MODEL_CONTEXT_WINDOWS: &[(&str, u64)] = &[
+    ("claude-opus-4-7", 1_000_000),
+    ("claude-opus-4-6", 1_000_000),
+    ("claude-sonnet-4-6", 1_000_000),
+    ("claude-sonnet-4-5", 200_000),
+    ("claude-sonnet-4", 200_000),
+    ("claude-haiku-4-5", 200_000),
+    ("claude-3-7-sonnet", 200_000),
+    ("claude-3-5-sonnet", 200_000),
+    ("claude-3-5-haiku", 200_000),
+    ("claude-3-opus", 200_000),
+];
+
+/// Fallback context window for empty or unrecognized model strings.
+pub const DEFAULT_CONTEXT_WINDOW: u64 = 200_000;
+
+/// Returns the context window for `model` via prefix match, or the default.
+pub fn context_window_for(model: &str) -> u64 {
+    if model.is_empty() {
+        return DEFAULT_CONTEXT_WINDOW;
+    }
+    for (prefix, window) in MODEL_CONTEXT_WINDOWS {
+        if model.starts_with(prefix) {
+            return *window;
+        }
+    }
+    DEFAULT_CONTEXT_WINDOW
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn context_window_prefix_match_prefers_longer_prefix() {
+        // sonnet-4-6 is 1M and must win over the sonnet-4 (200k) entry.
+        assert_eq!(context_window_for("claude-sonnet-4-6-20260101"), 1_000_000);
+        assert_eq!(context_window_for("claude-sonnet-4-5-20251101"), 200_000);
+    }
+
+    #[test]
+    fn context_window_opus_is_one_million() {
+        assert_eq!(context_window_for("claude-opus-4-7"), 1_000_000);
+        assert_eq!(context_window_for("claude-opus-4-6"), 1_000_000);
+    }
+
+    #[test]
+    fn context_window_unknown_and_empty_fall_back_to_default() {
+        assert_eq!(context_window_for("gpt-9"), DEFAULT_CONTEXT_WINDOW);
+        assert_eq!(context_window_for(""), DEFAULT_CONTEXT_WINDOW);
+    }
+}

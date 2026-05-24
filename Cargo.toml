@@ -1,6 +1,6 @@
 [package]
 name = "claude-usage-tray"
-version = "0.7.1"
+version = "0.8.0"
 edition = "2021"
 authors = ["borgi-s"]
 description = "Native Windows tray widget for Claude Code usage tracking."
@@ -22,6 +22,7 @@ clap = { version = "4", features = ["derive"] }
 eframe = { version = "0.29", default-features = false, features = ["default_fonts", "glow"] }
 egui = "0.29"
 egui_plot = "0.29"
+egui_extras = { version = "0.29", features = ["datepicker"] }
 winit = { version = "0.30", features = [] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
