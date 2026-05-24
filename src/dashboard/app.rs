@@ -2,9 +2,13 @@
 //! Close requests hide the window instead of destroying it; the tray re-shows
 //! it via the shared signals.
 
+use crate::dashboard::filters::FilterState;
 use crate::dashboard::range::Range;
+use crate::dashboard::sessions_table::TableControls;
 use crate::dashboard::DashboardSignals;
+use crate::shared::snapshot::{compute_kpis, AppSnapshot};
 use crate::shared::SharedSnapshot;
+use chrono::{DateTime, Utc};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,6 +19,20 @@ use std::time::Duration;
 /// it back. An off-screen-but-visible window keeps the loop ticking.
 const OFFSCREEN: egui::Pos2 = egui::pos2(-32000.0, -32000.0);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tab {
+    Charts,
+    Sessions,
+}
+
+/// Cheap signature for the filtered-view memo. Equal signature ⇒ reuse cache.
+#[derive(Debug, Clone, PartialEq)]
+struct ViewSig {
+    filter: FilterState,
+    n_turns: usize,
+    last_ts: Option<DateTime<Utc>>,
+}
+
 pub struct DashboardApp {
     shared: SharedSnapshot,
     signals: Arc<DashboardSignals>,
@@ -24,6 +42,10 @@ pub struct DashboardApp {
     range_5h: Range,
     range_week: Range,
     range_daily: Range,
+    tab: Tab,
+    filters: FilterState,
+    table_controls: TableControls,
+    cached_view: Option<(ViewSig, AppSnapshot)>,
 }
 
 impl DashboardApp {
@@ -37,7 +59,34 @@ impl DashboardApp {
             range_5h: Range::D5,
             range_week: Range::D14,
             range_daily: Range::D14,
+            tab: Tab::Charts,
+            filters: FilterState::default(),
+            table_controls: TableControls::default(),
+            cached_view: None,
         }
+    }
+
+    /// Build (or reuse) the filtered AppSnapshot: turns filtered + KPIs
+    /// recomputed; caps/hourly/live copied through unchanged. Memoized on the
+    /// filter state and the turn vector's length+last-timestamp.
+    fn filtered_view(&mut self, snap: &AppSnapshot) -> AppSnapshot {
+        let sig = ViewSig {
+            filter: self.filters.clone(),
+            n_turns: snap.turns.len(),
+            last_ts: snap.turns.last().map(|t| t.ts),
+        };
+        if let Some((cached_sig, view)) = &self.cached_view {
+            if *cached_sig == sig {
+                return view.clone();
+            }
+        }
+        let filtered = self.filters.apply(&snap.turns);
+        let kpis = compute_kpis(&filtered, &snap.caps);
+        let mut view = snap.clone();
+        view.turns = Arc::new(filtered);
+        view.kpis = kpis;
+        self.cached_view = Some((sig, view.clone()));
+        view
     }
 }
 
@@ -86,41 +135,65 @@ impl eframe::App for DashboardApp {
             return;
         }
 
-        // 5. Visible: render the dashboard.
-        egui::CentralPanel::default().show(ctx, |ui| {
-            let snap = self.shared.read().unwrap().clone();
-            let caps_available = snap.caps.cap_5h.is_some() || snap.caps.cap_week.is_some();
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.add_space(8.0);
-                crate::dashboard::kpi::render(ui, &snap.kpis, caps_available);
-                ui.add_space(16.0);
-                if snap.caps.cap_5h.is_none() && snap.caps.cap_week.is_none() {
-                    egui::Frame::default()
-                        .fill(egui::Color32::from_rgb(60, 50, 30))
-                        .inner_margin(egui::Margin::same(8.0))
-                        .show(ui, |ui| {
-                            ui.label(
-                                egui::RichText::new(
-                                    "Uncalibrated — charts show raw output tokens until first ≥95% anchor is observed in the calibration log.",
-                                )
-                                .color(egui::Color32::from_rgb(220, 200, 120)),
-                            );
-                        });
-                    ui.add_space(8.0);
-                }
-                ui.separator();
-                ui.add_space(8.0);
-                crate::dashboard::chart_5h::render(ui, &snap, &mut self.range_5h);
-                ui.add_space(16.0);
-                ui.separator();
-                ui.add_space(8.0);
-                crate::dashboard::chart_weekly::render(ui, &snap, &mut self.range_week);
-                ui.add_space(16.0);
-                ui.separator();
-                ui.add_space(8.0);
-                crate::dashboard::chart_daily::render(ui, &snap, &mut self.range_daily);
-                ui.add_space(8.0);
+        // 5. Visible: filter bar + tab strip + tab content.
+        let snap = self.shared.read().unwrap().clone();
+        let all_turns = snap.turns.clone();
+        let view = self.filtered_view(&snap);
+
+        egui::TopBottomPanel::top("filter_bar_panel").show(ctx, |ui| {
+            ui.add_space(4.0);
+            crate::dashboard::filter_bar::render(
+                ui,
+                &all_turns,
+                &mut self.filters,
+                view.turns.len(),
+                all_turns.len(),
+            );
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut self.tab, Tab::Charts, "Charts");
+                ui.selectable_value(&mut self.tab, Tab::Sessions, "Sessions");
             });
+        });
+
+        egui::CentralPanel::default().show(ctx, |ui| match self.tab {
+            Tab::Charts => {
+                let caps_available = view.caps.cap_5h.is_some() || view.caps.cap_week.is_some();
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.add_space(8.0);
+                    crate::dashboard::kpi::render(ui, &view.kpis, caps_available);
+                    ui.add_space(16.0);
+                    if view.caps.cap_5h.is_none() && view.caps.cap_week.is_none() {
+                        egui::Frame::default()
+                            .fill(egui::Color32::from_rgb(60, 50, 30))
+                            .inner_margin(egui::Margin::same(8.0))
+                            .show(ui, |ui| {
+                                ui.label(
+                                    egui::RichText::new(
+                                        "Uncalibrated — charts show raw output tokens until first ≥95% anchor is observed in the calibration log.",
+                                    )
+                                    .color(egui::Color32::from_rgb(220, 200, 120)),
+                                );
+                            });
+                        ui.add_space(8.0);
+                    }
+                    ui.separator();
+                    ui.add_space(8.0);
+                    crate::dashboard::chart_5h::render(ui, &view, &mut self.range_5h);
+                    ui.add_space(16.0);
+                    ui.separator();
+                    ui.add_space(8.0);
+                    crate::dashboard::chart_weekly::render(ui, &view, &mut self.range_week);
+                    ui.add_space(16.0);
+                    ui.separator();
+                    ui.add_space(8.0);
+                    crate::dashboard::chart_daily::render(ui, &view, &mut self.range_daily);
+                    ui.add_space(8.0);
+                });
+            }
+            Tab::Sessions => {
+                crate::dashboard::sessions_table::render(ui, &view.turns, &mut self.table_controls);
+            }
         });
 
         ctx.request_repaint_after(Duration::from_millis(33));
