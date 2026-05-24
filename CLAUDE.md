@@ -40,7 +40,7 @@ Stages 6.5-8 will get their own implementation plans when each is ready to start
 | 5 | Calibration math (port from Python's `caps.global_cap_from_anchors`) | ✅ Shipped — tag `v0.5.0`, pushed to GitHub |
 | 6 | egui dashboard window | ✅ Shipped — tag `v0.6.0`, pushed to GitHub |
 | 6.5 | Update notifier (GitHub Releases API) | Pending |
-| 7 | Supabase Storage upload | 🚧 In progress (branch stage-7-supabase-sync) |
+| 7 | Supabase Storage upload | Merged to main 2026-05-24 — **v0.7.0 tag pending** verification (see `memory/project_stage7_open_debug.md`) |
 | 8 | Streamlit feature parity (sessions table, filters, calibration history) | Pending |
 
 ## Tech stack (locked in design)
