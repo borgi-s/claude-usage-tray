@@ -12,4 +12,5 @@ pub mod shared;
 pub mod state;
 pub mod sync;
 pub mod tray;
+pub mod updater;
 pub mod watch;
