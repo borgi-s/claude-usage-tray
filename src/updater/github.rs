@@ -7,8 +7,7 @@ use serde::Deserialize;
 use std::time::Duration;
 use thiserror::Error;
 
-const LATEST_URL: &str =
-    "https://api.github.com/repos/borgi-s/claude-usage-tray/releases/latest";
+const LATEST_URL: &str = "https://api.github.com/repos/borgi-s/claude-usage-tray/releases/latest";
 
 #[derive(Debug, Error)]
 pub enum UpdateError {
@@ -61,7 +60,9 @@ pub fn fetch_latest_release() -> Result<String, UpdateError> {
         .set("Accept", "application/vnd.github+json")
         .call();
     match resp {
-        Ok(r) => r.into_string().map_err(|e| UpdateError::Http(e.to_string())),
+        Ok(r) => r
+            .into_string()
+            .map_err(|e| UpdateError::Http(e.to_string())),
         Err(ureq::Error::Status(code, _)) => Err(UpdateError::Http(format!("HTTP {code}"))),
         Err(ureq::Error::Transport(t)) => Err(UpdateError::Http(t.to_string())),
     }
@@ -94,9 +95,6 @@ mod tests {
     #[test]
     fn parse_release_rejects_bad_tag() {
         let json = r#"{"tag_name":"banana","html_url":"http://x"}"#;
-        assert!(matches!(
-            parse_release(json),
-            Err(UpdateError::Version(_))
-        ));
+        assert!(matches!(parse_release(json), Err(UpdateError::Version(_))));
     }
 }
