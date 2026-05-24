@@ -161,9 +161,15 @@ fn polling_loop(
             kpis,
         };
         // Stage 7: best-effort upload of the snapshot we just built. Re-read the
-        // calibration log (cheap file read) so the parquet matches this tick.
+        // calibration log so the parquet matches this tick.
         if let Some(syncer) = &syncer {
-            let samples = crate::log::calibration::read_all_default().unwrap_or_default();
+            let samples = match crate::log::calibration::read_all_default() {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!(error = %e, "calibration log read failed; uploading empty samples this tick");
+                    Vec::new()
+                }
+            };
             syncer.run_once(&snapshot, &creds, &samples);
         }
         match shared.write() {
