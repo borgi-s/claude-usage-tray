@@ -28,8 +28,10 @@ User is a **Rust beginner** (zero prior Rust experience as of 2026-05-22). Expla
 - **Stage 6.5 plan:** `docs/superpowers/plans/2026-05-24-stage-6.5-update-notifier.md` — task plan. **Shipped 2026-05-24 (tag `v0.7.1`).**
 - **Stage 7 spec:** `docs/superpowers/specs/2026-05-23-stage-7-supabase-sync-design.md` — Supabase Storage upload, parquet/format-parity findings, per-user layout.
 - **Stage 7 plan:** `docs/superpowers/plans/2026-05-23-stage-7-supabase-sync.md` — task plan. **Shipped 2026-05-24 (tag `v0.7.0`).**
+- **Stage 8 (mini-project 1) spec:** `docs/superpowers/specs/2026-05-24-stage-8-sessions-table-design.md` — sessions table + global filters (date/project/model) that drive the whole dashboard; new Charts|Sessions tab strip.
+- **Stage 8 (mini-project 1) plan:** `docs/superpowers/plans/2026-05-24-stage-8-sessions-table.md` — task plan. **Shipped 2026-05-24 (tag `v0.8.0`).**
 
-Stage 8 will get its own implementation plan when ready to start.
+Stage 8 ships as a series of mini-projects (one per spec+plan); the next ones (calibration history, live API status banner, settings panel) get their own specs when started.
 
 ## Stage roadmap (summary — see spec for details)
 
@@ -43,7 +45,7 @@ Stage 8 will get its own implementation plan when ready to start.
 | 6 | egui dashboard window | ✅ Shipped — tag `v0.6.0`, pushed to GitHub |
 | 6.5 | Update notifier (GitHub Releases API) | ✅ Shipped — tag `v0.7.1` |
 | 7 | Supabase Storage upload | ✅ Shipped — tag `v0.7.0`, pushed to GitHub |
-| 8 | Streamlit feature parity (sessions table, filters, calibration history) | Pending |
+| 8 | Streamlit feature parity (sessions table, filters, calibration history) | 🔶 In progress — mini-project 1 (sessions table + filters) shipped `v0.8.0` |
 
 ## Tech stack (locked in design)
 
