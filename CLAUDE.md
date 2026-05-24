@@ -24,10 +24,12 @@ User is a **Rust beginner** (zero prior Rust experience as of 2026-05-22). Expla
 - **Stage 5 plan:** `docs/superpowers/plans/2026-05-23-stage-5-calibration.md` — task plan. **Shipped 2026-05-23 (tag `v0.5.0`).**
 - **Stage 6 spec:** `docs/superpowers/specs/2026-05-23-stage-6-dashboard-design.md` — native egui dashboard window design.
 - **Stage 6 plan:** `docs/superpowers/plans/2026-05-23-stage-6-dashboard.md` — task plan. **Shipped 2026-05-23 (tag `v0.6.0`).**
+- **Stage 6.5 spec:** `docs/superpowers/specs/2026-05-24-stage-6.5-update-notifier-design.md` — GitHub Releases version check, tray menu + balloon, manual check (5/hr), daily auto-check on poller thread.
+- **Stage 6.5 plan:** `docs/superpowers/plans/2026-05-24-stage-6.5-update-notifier.md` — task plan. **Shipped 2026-05-24 (tag `v0.7.1`).**
 - **Stage 7 spec:** `docs/superpowers/specs/2026-05-23-stage-7-supabase-sync-design.md` — Supabase Storage upload, parquet/format-parity findings, per-user layout.
 - **Stage 7 plan:** `docs/superpowers/plans/2026-05-23-stage-7-supabase-sync.md` — task plan. **Shipped 2026-05-24 (tag `v0.7.0`).**
 
-Stages 6.5-8 will get their own implementation plans when each is ready to start.
+Stage 8 will get its own implementation plan when ready to start.
 
 ## Stage roadmap (summary — see spec for details)
 
@@ -39,7 +41,7 @@ Stages 6.5-8 will get their own implementation plans when each is ready to start
 | 4 | GDI-rendered percentage icon | ✅ Shipped — tag `v0.4.0`, pushed to GitHub |
 | 5 | Calibration math (port from Python's `caps.global_cap_from_anchors`) | ✅ Shipped — tag `v0.5.0`, pushed to GitHub |
 | 6 | egui dashboard window | ✅ Shipped — tag `v0.6.0`, pushed to GitHub |
-| 6.5 | Update notifier (GitHub Releases API) | Pending |
+| 6.5 | Update notifier (GitHub Releases API) | ✅ Shipped — tag `v0.7.1` |
 | 7 | Supabase Storage upload | ✅ Shipped — tag `v0.7.0`, pushed to GitHub |
 | 8 | Streamlit feature parity (sessions table, filters, calibration history) | Pending |
 
