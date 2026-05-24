@@ -9,9 +9,11 @@ pub mod bands;
 pub mod chart_5h;
 pub mod chart_daily;
 pub mod chart_weekly;
+pub mod filters;
 pub mod kpi;
 pub mod range;
 pub mod series;
+pub mod sessions_table;
 
 use crate::dashboard::app::DashboardApp;
 use crate::shared::SharedSnapshot;
