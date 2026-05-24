@@ -19,8 +19,6 @@ pub struct UpdateCheck {
     pub latest: ReleaseInfo,
     /// `latest.version` is strictly newer than the running version.
     pub is_newer: bool,
-    /// True if this check was triggered manually ("Check for updates now").
-    pub manual: bool,
 }
 
 /// Event sent from a checking thread to the UI thread. `notify` is computed by
@@ -32,15 +30,11 @@ pub enum UpdateEvent {
 }
 
 /// Fetch the latest release and compare against `current`.
-pub fn check_latest(current: &Version, manual: bool) -> Result<UpdateCheck, UpdateError> {
+pub fn check_latest(current: &Version) -> Result<UpdateCheck, UpdateError> {
     let body = fetch_latest_release()?;
     let latest = parse_release(&body)?;
     let is_newer = version::is_update_available(current, &latest.version);
-    Ok(UpdateCheck {
-        latest,
-        is_newer,
-        manual,
-    })
+    Ok(UpdateCheck { latest, is_newer })
 }
 
 /// How far back the manual-check rate-limit window looks.
@@ -76,7 +70,10 @@ mod tests {
             );
         }
         // 6th within the hour is blocked.
-        assert!(!manual_check_allowed(&mut hist, base + Duration::from_secs(5 * 60)));
+        assert!(!manual_check_allowed(
+            &mut hist,
+            base + Duration::from_secs(5 * 60)
+        ));
     }
 
     #[test]
@@ -84,11 +81,20 @@ mod tests {
         let base = Instant::now();
         let mut hist = Vec::new();
         for i in 0u64..5 {
-            assert!(manual_check_allowed(&mut hist, base + Duration::from_secs(i)));
+            assert!(manual_check_allowed(
+                &mut hist,
+                base + Duration::from_secs(i)
+            ));
         }
-        assert!(!manual_check_allowed(&mut hist, base + Duration::from_secs(10)));
+        assert!(!manual_check_allowed(
+            &mut hist,
+            base + Duration::from_secs(10)
+        ));
         // Past the 1h window, all prior entries are evicted → allowed again.
-        assert!(manual_check_allowed(&mut hist, base + Duration::from_secs(3601)));
+        assert!(manual_check_allowed(
+            &mut hist,
+            base + Duration::from_secs(3601)
+        ));
     }
 
     #[test]

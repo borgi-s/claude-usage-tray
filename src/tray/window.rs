@@ -374,12 +374,14 @@ fn trigger_manual_check(hwnd: HWND, state: &mut TrayState) {
     }
     let tx = state.update_tx.clone();
     let send_hwnd = crate::tray::poller::SendHwnd(hwnd);
+    // This detached thread may outlive TrayState if the user quits mid-check;
+    // its tx.send / PostMessageW then fail harmlessly (Err/FALSE, both ignored).
     std::thread::spawn(move || {
         // Force the closure to capture the whole `SendHwnd` (which is `Send`)
         // rather than the inner non-Send `HWND` via disjoint capture.
         let send_hwnd = send_hwnd;
         let current = updater::current_version();
-        let ev = match updater::check_latest(&current, true) {
+        let ev = match updater::check_latest(&current) {
             Ok(check) => UpdateEvent::Result {
                 check,
                 notify: true,
@@ -504,7 +506,12 @@ fn show_context_menu(hwnd: HWND) {
             let _ = AppendMenuW(hmenu, MF_STRING, IDM_UPDATE, PCWSTR(label.as_ptr()));
             let _ = AppendMenuW(hmenu, MF_SEPARATOR, 0, PCWSTR::null());
         }
-        let _ = AppendMenuW(hmenu, MF_STRING, IDM_CHECK_UPDATES, PCWSTR(check_label.as_ptr()));
+        let _ = AppendMenuW(
+            hmenu,
+            MF_STRING,
+            IDM_CHECK_UPDATES,
+            PCWSTR(check_label.as_ptr()),
+        );
         let _ = AppendMenuW(hmenu, MF_STRING, IDM_QUIT, PCWSTR(quit_label.as_ptr()));
         let _ = TrackPopupMenu(
             hmenu,

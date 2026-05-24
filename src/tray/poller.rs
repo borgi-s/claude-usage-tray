@@ -278,7 +278,7 @@ fn maybe_check_for_update(
     app_state.update.last_check = Some(chrono::Utc::now());
     let current = updater::current_version();
 
-    match updater::check_latest(&current, false) {
+    match updater::check_latest(&current) {
         Ok(check) => {
             let new_version = check.latest.version.to_string();
             let notify = check.is_newer
@@ -292,7 +292,12 @@ fn maybe_check_for_update(
             let _ = update_tx.send(UpdateEvent::Result { check, notify });
             // SAFETY: PostMessageW is thread-safe; the HWND is valid until shutdown.
             unsafe {
-                let _ = PostMessageW(hwnd.0, crate::tray::window::WM_APP_UPDATE, WPARAM(0), LPARAM(0));
+                let _ = PostMessageW(
+                    hwnd.0,
+                    crate::tray::window::WM_APP_UPDATE,
+                    WPARAM(0),
+                    LPARAM(0),
+                );
             }
         }
         Err(e) => {
