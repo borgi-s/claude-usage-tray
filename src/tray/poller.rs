@@ -101,6 +101,23 @@ fn polling_loop(
         g.last_status = last_status.clone();
     }
 
+    // Stage 7: best-effort Supabase sync. `None` when unconfigured (no .env) —
+    // the agent then behaves exactly as before.
+    let syncer = match crate::sync::Syncer::from_env() {
+        Ok(s) => {
+            if s.is_some() {
+                tracing::info!("supabase sync enabled");
+            } else {
+                tracing::info!("supabase sync disabled (no .env config)");
+            }
+            s
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "supabase sync config invalid; disabled");
+            None
+        }
+    };
+
     while !shutdown.load(Ordering::Relaxed) {
         let fetch_at = Instant::now();
 
@@ -143,6 +160,12 @@ fn polling_loop(
             last_status: last_status.clone(),
             kpis,
         };
+        // Stage 7: best-effort upload of the snapshot we just built. Re-read the
+        // calibration log (cheap file read) so the parquet matches this tick.
+        if let Some(syncer) = &syncer {
+            let samples = crate::log::calibration::read_all_default().unwrap_or_default();
+            syncer.run_once(&snapshot, &creds, &samples);
+        }
         match shared.write() {
             Ok(mut g) => *g = snapshot,
             Err(e) => {
