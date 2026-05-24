@@ -41,7 +41,7 @@ pub fn cost_weighted(turn: &Turn) -> f64 {
         + turn.output_tokens as f64 * config::COST_WEIGHT_OUTPUT
 }
 
-use crate::calibration::anchors::{five_hour_burn_at, weekly_burn_at};
+use crate::calibration::anchors::{peak_five_hour_burn, peak_weekly_burn};
 
 /// Compute all four KPIs from the turns + caps. Called once per poll.
 pub fn compute_kpis(turns: &[Turn], caps: &DerivedCaps) -> DashboardKpis {
@@ -68,10 +68,7 @@ fn peak_5h_share(turns: &[Turn], caps: &DerivedCaps) -> f64 {
     if cap <= 0.0 {
         return 0.0;
     }
-    turns
-        .iter()
-        .map(|t| five_hour_burn_at(turns, t.ts) as f64 / cap)
-        .fold(0.0_f64, f64::max)
+    peak_five_hour_burn(turns) as f64 / cap
 }
 
 /// Max cumulative-share across any weekly window, or 0.0 if cap_week is None.
@@ -80,10 +77,7 @@ fn peak_week_share(turns: &[Turn], caps: &DerivedCaps) -> f64 {
     if cap <= 0.0 {
         return 0.0;
     }
-    turns
-        .iter()
-        .map(|t| weekly_burn_at(turns, t.ts) as f64 / cap)
-        .fold(0.0_f64, f64::max)
+    peak_weekly_burn(turns) as f64 / cap
 }
 
 #[cfg(test)]
