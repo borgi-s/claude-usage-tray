@@ -33,7 +33,11 @@ pub fn load_from(path: &Path) -> AppState {
             AppState::default()
         }),
         // Missing file is the normal first-run case — no warning.
-        Err(_) => AppState::default(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => AppState::default(),
+        Err(e) => {
+            tracing::warn!(error = %e, path = %path.display(), "could not read state.json; using defaults");
+            AppState::default()
+        }
     }
 }
 
@@ -46,6 +50,7 @@ pub fn save_to(path: &Path, state: &AppState) -> anyhow::Result<()> {
 }
 
 /// Convenience: load from the default `~/.claude-usage-tray/state.json`.
+/// On any error (path resolution, IO, or parse) returns `AppState::default()` after logging a warning.
 pub fn load() -> AppState {
     match crate::paths::state_path() {
         Ok(p) => load_from(&p),
