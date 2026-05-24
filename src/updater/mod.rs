@@ -43,12 +43,14 @@ pub fn check_latest(current: &Version, manual: bool) -> Result<UpdateCheck, Upda
     })
 }
 
+/// How far back the manual-check rate-limit window looks.
+pub const MANUAL_CHECK_WINDOW: Duration = Duration::from_secs(3600);
+/// Maximum manual checks allowed within `MANUAL_CHECK_WINDOW`.
+pub const MANUAL_CHECK_MAX: usize = 5;
+
 /// Rolling-window rate limit for manual checks: at most `MANUAL_CHECK_MAX` within
 /// `MANUAL_CHECK_WINDOW`. Prunes expired timestamps, and if there is room, records
 /// `now` and returns `true`; otherwise returns `false` without recording.
-pub const MANUAL_CHECK_WINDOW: Duration = Duration::from_secs(3600);
-pub const MANUAL_CHECK_MAX: usize = 5;
-
 pub fn manual_check_allowed(history: &mut Vec<Instant>, now: Instant) -> bool {
     history.retain(|t| now.saturating_duration_since(*t) < MANUAL_CHECK_WINDOW);
     if history.len() < MANUAL_CHECK_MAX {
