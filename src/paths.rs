@@ -33,3 +33,8 @@ pub fn cache_path() -> Result<PathBuf> {
 pub fn cache_manifest_path() -> Result<PathBuf> {
     Ok(app_dir()?.join("cache_manifest.json"))
 }
+
+/// Returns ~/.claude-usage-tray/state.json. Does NOT create the file.
+pub fn state_path() -> Result<PathBuf> {
+    Ok(app_dir()?.join("state.json"))
+}

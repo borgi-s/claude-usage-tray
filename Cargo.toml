@@ -38,6 +38,7 @@ windows = { version = "0.58", features = [
 arrow = "58.3.0"
 parquet = "58.3.0"
 dotenvy = "0.15.7"
+semver = "1"
 
 [dev-dependencies]
 tempfile = "3"
