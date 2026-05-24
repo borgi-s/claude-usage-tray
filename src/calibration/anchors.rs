@@ -95,6 +95,61 @@ pub fn weekly_burn_at(turns: &[Turn], anchor_ts: DateTime<Utc>) -> u64 {
         .sum()
 }
 
+/// Single forward pass equal to `max over t of five_hour_burn_at(turns, t.ts)`,
+/// in O(n) instead of the O(n^2) of calling `five_hour_burn_at` per turn. It
+/// replays the same gap-rollover logic incrementally, recording the running
+/// burn after each turn. Requires `turns` sorted ascending by `ts` — the same
+/// invariant `five_hour_burn_at` already depends on.
+pub fn peak_five_hour_burn(turns: &[Turn]) -> u64 {
+    let gap = Duration::milliseconds((config::FIVE_HOUR_WINDOW_HOURS * 3_600_000.0) as i64);
+    let mut current_start: Option<DateTime<Utc>> = None;
+    let mut last_ts: Option<DateTime<Utc>> = None;
+    let mut burn: u64 = 0;
+    let mut peak: u64 = 0;
+
+    for t in turns.iter() {
+        match (current_start, last_ts) {
+            (None, _) => {
+                current_start = Some(t.ts);
+            }
+            (Some(start), Some(prev)) => {
+                if t.ts - prev >= gap || t.ts - start >= gap {
+                    current_start = Some(t.ts);
+                    burn = 0;
+                }
+            }
+            (Some(_), None) => unreachable!("current_start implies last_ts"),
+        }
+        burn += t.output_tokens;
+        last_ts = Some(t.ts);
+        peak = peak.max(burn);
+    }
+
+    peak
+}
+
+/// Single forward pass equal to `max over t of weekly_burn_at(turns, t.ts)`, in
+/// O(n) instead of O(n^2). Accumulates output within each fixed weekly window
+/// (Sun 07:00-local resets) and resets at each boundary. Requires `turns`
+/// sorted ascending by `ts`.
+pub fn peak_weekly_burn(turns: &[Turn]) -> u64 {
+    let mut cur_reset: Option<DateTime<Utc>> = None;
+    let mut burn: u64 = 0;
+    let mut peak: u64 = 0;
+
+    for t in turns.iter() {
+        let reset = last_weekly_reset(t.ts);
+        if cur_reset != Some(reset) {
+            cur_reset = Some(reset);
+            burn = 0;
+        }
+        burn += t.output_tokens;
+        peak = peak.max(burn);
+    }
+
+    peak
+}
+
 use crate::calibration::WindowKind;
 use crate::log::calibration::CalibrationSample;
 
@@ -274,6 +329,47 @@ mod tests {
         let anchor = utc(2026, 5, 24, 8, 0);
         // Only the 100 token row falls within the new week.
         assert_eq!(weekly_burn_at(&turns, anchor), 100);
+    }
+
+    #[test]
+    fn peak_five_hour_burn_matches_bruteforce() {
+        // Spans three gap-separated 5h windows, plus a same-ts tie.
+        let turns = vec![
+            turn(utc(2026, 5, 24, 8, 0), 100),
+            turn(utc(2026, 5, 24, 9, 0), 200),
+            turn(utc(2026, 5, 24, 12, 30), 300), // 4.5h after 08:00 → new window
+            turn(utc(2026, 5, 24, 13, 0), 400),
+            turn(utc(2026, 5, 24, 13, 0), 10), // same ts as previous
+            turn(utc(2026, 5, 24, 20, 0), 50), // big gap → new window
+        ];
+        let brute = turns
+            .iter()
+            .map(|t| five_hour_burn_at(&turns, t.ts))
+            .max()
+            .unwrap_or(0);
+        assert_eq!(peak_five_hour_burn(&turns), brute);
+    }
+
+    #[test]
+    fn peak_weekly_burn_matches_bruteforce() {
+        let turns = vec![
+            turn(utc(2026, 5, 17, 6, 0), 100), // week of Sun 5/17 reset
+            turn(utc(2026, 5, 19, 12, 0), 200),
+            turn(utc(2026, 5, 24, 6, 0), 300), // after Sun 5/24 05:00 UTC reset → new week
+            turn(utc(2026, 5, 24, 8, 0), 400),
+        ];
+        let brute = turns
+            .iter()
+            .map(|t| weekly_burn_at(&turns, t.ts))
+            .max()
+            .unwrap_or(0);
+        assert_eq!(peak_weekly_burn(&turns), brute);
+    }
+
+    #[test]
+    fn peak_burns_empty_is_zero() {
+        assert_eq!(peak_five_hour_burn(&[]), 0);
+        assert_eq!(peak_weekly_burn(&[]), 0);
     }
 
     use crate::calibration::WindowKind;
