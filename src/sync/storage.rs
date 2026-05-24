@@ -18,8 +18,9 @@ pub trait ObjectStore {
     fn put(&self, object_path: &str, content_type: &str, bytes: &[u8]) -> Result<(), StorageError>;
 }
 
-/// Supabase Storage REST client. Uploads via `PUT /storage/v1/object/{bucket}/{key}`
-/// with `x-upsert: true` so existing objects are overwritten.
+/// Supabase Storage REST client. Uploads via `POST /storage/v1/object/{bucket}/{key}`
+/// with `x-upsert: true` so existing objects are overwritten (the standard
+/// Supabase upload; PUT is update-only and won't create new objects).
 // No `derive(Debug)`: holds the service_role_key; see SyncConfig's redacted Debug.
 pub struct SupabaseStore {
     agent: ureq::Agent,
@@ -52,9 +53,12 @@ impl SupabaseStore {
 impl ObjectStore for SupabaseStore {
     fn put(&self, object_path: &str, content_type: &str, bytes: &[u8]) -> Result<(), StorageError> {
         let url = self.object_url(object_path);
+        // Supabase's standard upload is POST (create) with `x-upsert: true` to
+        // overwrite — matching supabase-py's `.upload(upsert=true)`. A PUT here
+        // hits the "update existing object" path and won't create a new file.
         let resp = self
             .agent
-            .put(&url)
+            .post(&url)
             .set("Authorization", &format!("Bearer {}", self.key))
             .set("apikey", &self.key)
             .set("x-upsert", "true")
