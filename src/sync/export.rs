@@ -34,8 +34,14 @@ pub fn cache_parquet(turns: &[Turn]) -> Result<Vec<u8>> {
     ]));
 
     let columns: Vec<ArrayRef> = vec![
+        // Z-terminated millis form (e.g. "2026-05-23T10:00:00.000Z"). The cloud
+        // viewer parses this column with polars strptime format
+        // "%Y-%m-%dT%H:%M:%S%.fZ" (literal Z, strict=false) — the offset form
+        // from plain to_rfc3339() ("+00:00") would silently parse to null.
         Arc::new(StringArray::from_iter_values(
-            turns.iter().map(|t| t.ts.to_rfc3339()),
+            turns
+                .iter()
+                .map(|t| t.ts.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
         )),
         Arc::new(StringArray::from_iter_values(
             turns.iter().map(|t| t.session_id.clone()),
@@ -336,6 +342,16 @@ mod tests {
             .downcast_ref::<StringArray>()
             .unwrap();
         assert_eq!(sess.value(0), "sess-1");
+
+        // The cloud viewer parses `timestamp` with polars strptime format
+        // "%Y-%m-%dT%H:%M:%S%.fZ" — it MUST be the Z-terminated millis form,
+        // not the "+00:00" offset form, or every row silently parses to null.
+        let ts = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        assert_eq!(ts.value(0), "2026-05-23T10:00:00.000Z");
     }
 
     #[test]
