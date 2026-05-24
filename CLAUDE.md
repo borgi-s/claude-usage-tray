@@ -57,7 +57,7 @@ Stages 6.5-8 will get their own implementation plans when each is ready to start
 - Parquet/Arrow: `arrow` + `parquet` (added Stage 7, scoped to the sync upload path only — note: revisits the original "no parquet" exclusion, accepted deliberately)
 - Env config: `dotenvy` (added Stage 7, reads `.env` for Supabase keys)
 
-**Excluded by design:** tokio, polars equivalents, parquet, iced/Slint/other GUI libs, cross-compilation, Mac/Linux ports.
+**Excluded by design:** tokio, polars equivalents, parquet *(except the Stage 7 sync upload path — see Tech stack above)*, iced/Slint/other GUI libs, cross-compilation, Mac/Linux ports.
 
 ## Conventions
 
