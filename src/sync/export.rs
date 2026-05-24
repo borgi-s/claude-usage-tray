@@ -38,11 +38,9 @@ pub fn cache_parquet(turns: &[Turn]) -> Result<Vec<u8>> {
         // viewer parses this column with polars strptime format
         // "%Y-%m-%dT%H:%M:%S%.fZ" (literal Z, strict=false) — the offset form
         // from plain to_rfc3339() ("+00:00") would silently parse to null.
-        Arc::new(StringArray::from_iter_values(
-            turns
-                .iter()
-                .map(|t| t.ts.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)),
-        )),
+        Arc::new(StringArray::from_iter_values(turns.iter().map(|t| {
+            t.ts.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+        }))),
         Arc::new(StringArray::from_iter_values(
             turns.iter().map(|t| t.session_id.clone()),
         )),
