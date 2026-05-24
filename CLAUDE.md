@@ -57,7 +57,7 @@ Stage 8 ships as a series of mini-projects (one per spec+plan); the next ones (c
 - Errors: `anyhow` (top-level) + `thiserror` (library modules)
 - Logging: `tracing` + `tracing-subscriber` (added Stage 2)
 - Win32: `windows` crate (added Stage 3)
-- GUI: `eframe` + `egui` + `egui_plot` (added Stage 6)
+- GUI: `eframe` + `egui` + `egui_plot` (added Stage 6); `egui_extras` (added Stage 8, `datepicker` feature — `TableBuilder` for the sessions table + date-range pickers)
 - Parquet/Arrow: `arrow` + `parquet` (added Stage 7, scoped to the sync upload path only — note: revisits the original "no parquet" exclusion, accepted deliberately)
 - Env config: `dotenvy` (added Stage 7, reads `.env` for Supabase keys)
 
