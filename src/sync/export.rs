@@ -6,11 +6,13 @@ use crate::data::parser::Turn;
 use crate::log::calibration::CalibrationSample;
 use crate::shared::snapshot::AppSnapshot;
 use anyhow::Result;
-use serde::Serialize;
-use arrow::array::{ArrayRef, BooleanArray, Float64Array, Int64Array, StringArray, TimestampMillisecondArray};
+use arrow::array::{
+    ArrayRef, BooleanArray, Float64Array, Int64Array, StringArray, TimestampMillisecondArray,
+};
 use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
 use parquet::arrow::ArrowWriter;
+use serde::Serialize;
 use std::sync::Arc;
 
 /// Serialize the cache (one row per turn) to parquet bytes.
@@ -32,20 +34,54 @@ pub fn cache_parquet(turns: &[Turn]) -> Result<Vec<u8>> {
     ]));
 
     let columns: Vec<ArrayRef> = vec![
-        Arc::new(StringArray::from_iter_values(turns.iter().map(|t| t.ts.to_rfc3339()))),
-        Arc::new(StringArray::from_iter_values(turns.iter().map(|t| t.session_id.clone()))),
-        Arc::new(StringArray::from(turns.iter().map(|t| t.subagent_id.clone()).collect::<Vec<Option<String>>>())),
-        Arc::new(BooleanArray::from(turns.iter().map(|t| t.is_subagent).collect::<Vec<bool>>())),
-        Arc::new(StringArray::from_iter_values(turns.iter().map(|t| t.project_cwd.clone()))),
-        Arc::new(StringArray::from_iter_values(turns.iter().map(|t| t.model.clone()))),
-        Arc::new(StringArray::from_iter_values(turns.iter().map(|t| t.version.clone()))),
+        Arc::new(StringArray::from_iter_values(
+            turns.iter().map(|t| t.ts.to_rfc3339()),
+        )),
+        Arc::new(StringArray::from_iter_values(
+            turns.iter().map(|t| t.session_id.clone()),
+        )),
+        Arc::new(StringArray::from(
+            turns
+                .iter()
+                .map(|t| t.subagent_id.clone())
+                .collect::<Vec<Option<String>>>(),
+        )),
+        Arc::new(BooleanArray::from(
+            turns.iter().map(|t| t.is_subagent).collect::<Vec<bool>>(),
+        )),
+        Arc::new(StringArray::from_iter_values(
+            turns.iter().map(|t| t.project_cwd.clone()),
+        )),
+        Arc::new(StringArray::from_iter_values(
+            turns.iter().map(|t| t.model.clone()),
+        )),
+        Arc::new(StringArray::from_iter_values(
+            turns.iter().map(|t| t.version.clone()),
+        )),
         // Token counts are always small (<10^9); i64::MAX is ~9.2*10^18, so the cast never wraps.
-        Arc::new(Int64Array::from_iter_values(turns.iter().map(|t| t.input_tokens as i64))),
-        Arc::new(Int64Array::from_iter_values(turns.iter().map(|t| t.output_tokens as i64))),
-        Arc::new(Int64Array::from_iter_values(turns.iter().map(|t| t.cache_creation_input_tokens as i64))),
-        Arc::new(Int64Array::from_iter_values(turns.iter().map(|t| t.cache_read_input_tokens as i64))),
-        Arc::new(StringArray::from_iter_values(turns.iter().map(|t| t.source_file.to_string_lossy().into_owned()))),
-        Arc::new(BooleanArray::from(turns.iter().map(|t| t.is_rate_limit_error).collect::<Vec<bool>>())),
+        Arc::new(Int64Array::from_iter_values(
+            turns.iter().map(|t| t.input_tokens as i64),
+        )),
+        Arc::new(Int64Array::from_iter_values(
+            turns.iter().map(|t| t.output_tokens as i64),
+        )),
+        Arc::new(Int64Array::from_iter_values(
+            turns.iter().map(|t| t.cache_creation_input_tokens as i64),
+        )),
+        Arc::new(Int64Array::from_iter_values(
+            turns.iter().map(|t| t.cache_read_input_tokens as i64),
+        )),
+        Arc::new(StringArray::from_iter_values(
+            turns
+                .iter()
+                .map(|t| t.source_file.to_string_lossy().into_owned()),
+        )),
+        Arc::new(BooleanArray::from(
+            turns
+                .iter()
+                .map(|t| t.is_rate_limit_error)
+                .collect::<Vec<bool>>(),
+        )),
     ];
 
     let batch = RecordBatch::try_new(schema.clone(), columns)?;
@@ -59,7 +95,11 @@ pub fn calibration_log_parquet(samples: &[CalibrationSample]) -> Result<Vec<u8>>
     let n = samples.len();
 
     let schema = Arc::new(Schema::new(vec![
-        Field::new("sampled_at", DataType::Timestamp(TimeUnit::Millisecond, Some("UTC".into())), false),
+        Field::new(
+            "sampled_at",
+            DataType::Timestamp(TimeUnit::Millisecond, Some("UTC".into())),
+            false,
+        ),
         Field::new("util_5h", DataType::Float64, true),
         Field::new("util_7d", DataType::Float64, true),
         Field::new("burn_5h_cost_weighted", DataType::Float64, true),
@@ -79,7 +119,10 @@ pub fn calibration_log_parquet(samples: &[CalibrationSample]) -> Result<Vec<u8>>
     ]));
 
     let sampled_at = TimestampMillisecondArray::from(
-        samples.iter().map(|s| s.ts.timestamp_millis()).collect::<Vec<i64>>(),
+        samples
+            .iter()
+            .map(|s| s.ts.timestamp_millis())
+            .collect::<Vec<i64>>(),
     )
     .with_timezone("UTC");
 
@@ -88,17 +131,47 @@ pub fn calibration_log_parquet(samples: &[CalibrationSample]) -> Result<Vec<u8>>
 
     let columns: Vec<ArrayRef> = vec![
         Arc::new(sampled_at),
-        Arc::new(Float64Array::from(samples.iter().map(|s| s.five_hour_util).collect::<Vec<Option<f64>>>())),
-        Arc::new(Float64Array::from(samples.iter().map(|s| s.seven_day_util).collect::<Vec<Option<f64>>>())),
+        Arc::new(Float64Array::from(
+            samples
+                .iter()
+                .map(|s| s.five_hour_util)
+                .collect::<Vec<Option<f64>>>(),
+        )),
+        Arc::new(Float64Array::from(
+            samples
+                .iter()
+                .map(|s| s.seven_day_util)
+                .collect::<Vec<Option<f64>>>(),
+        )),
         null_f64(),
         null_f64(),
         // input, cache_creation, cache_read, output — _5h block then _7d block
-        null_i64(), null_i64(), null_i64(), null_i64(),
-        null_i64(), null_i64(), null_i64(), null_i64(),
-        Arc::new(StringArray::from_iter_values(samples.iter().map(|s| s.subscription_type.clone()))),
-        Arc::new(StringArray::from_iter_values(samples.iter().map(|s| s.rate_limit_tier.clone()))),
-        Arc::new(StringArray::from(samples.iter().map(|s| s.five_hour_resets_at.map(|d| d.to_rfc3339())).collect::<Vec<Option<String>>>())),
-        Arc::new(StringArray::from(samples.iter().map(|s| s.seven_day_resets_at.map(|d| d.to_rfc3339())).collect::<Vec<Option<String>>>())),
+        null_i64(),
+        null_i64(),
+        null_i64(),
+        null_i64(),
+        null_i64(),
+        null_i64(),
+        null_i64(),
+        null_i64(),
+        Arc::new(StringArray::from_iter_values(
+            samples.iter().map(|s| s.subscription_type.clone()),
+        )),
+        Arc::new(StringArray::from_iter_values(
+            samples.iter().map(|s| s.rate_limit_tier.clone()),
+        )),
+        Arc::new(StringArray::from(
+            samples
+                .iter()
+                .map(|s| s.five_hour_resets_at.map(|d| d.to_rfc3339()))
+                .collect::<Vec<Option<String>>>(),
+        )),
+        Arc::new(StringArray::from(
+            samples
+                .iter()
+                .map(|s| s.seven_day_resets_at.map(|d| d.to_rfc3339()))
+                .collect::<Vec<Option<String>>>(),
+        )),
     ];
 
     let batch = RecordBatch::try_new(schema.clone(), columns)?;
@@ -131,8 +204,16 @@ pub fn caps_json(snapshot: &AppSnapshot, creds: &Credentials) -> Result<Vec<u8>>
             Some(at.to_rfc3339()),
             usage.five_hour.as_ref().map(|b| b.utilization),
             usage.seven_day.as_ref().map(|b| b.utilization),
-            usage.five_hour.as_ref().and_then(|b| b.resets_at).map(|d| d.to_rfc3339()),
-            usage.seven_day.as_ref().and_then(|b| b.resets_at).map(|d| d.to_rfc3339()),
+            usage
+                .five_hour
+                .as_ref()
+                .and_then(|b| b.resets_at)
+                .map(|d| d.to_rfc3339()),
+            usage
+                .seven_day
+                .as_ref()
+                .and_then(|b| b.resets_at)
+                .map(|d| d.to_rfc3339()),
         ),
         None => (None, None, None, None, None),
     };
@@ -222,18 +303,38 @@ mod tests {
 
         let schema = batch.schema();
         let names: Vec<&str> = schema.fields().iter().map(|f| f.name().as_str()).collect();
-        assert_eq!(names, vec![
-            "timestamp", "session_id", "subagent_id", "is_subagent", "project_cwd",
-            "model", "version", "input_tokens", "output_tokens",
-            "cache_creation_input_tokens", "cache_read_input_tokens",
-            "source_file", "is_rate_limit_error",
-        ]);
+        assert_eq!(
+            names,
+            vec![
+                "timestamp",
+                "session_id",
+                "subagent_id",
+                "is_subagent",
+                "project_cwd",
+                "model",
+                "version",
+                "input_tokens",
+                "output_tokens",
+                "cache_creation_input_tokens",
+                "cache_read_input_tokens",
+                "source_file",
+                "is_rate_limit_error",
+            ]
+        );
         assert_eq!(batch.num_rows(), 1);
 
         use arrow::array::{Int64Array, StringArray};
-        let out = batch.column(8).as_any().downcast_ref::<Int64Array>().unwrap();
+        let out = batch
+            .column(8)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
         assert_eq!(out.value(0), 400);
-        let sess = batch.column(1).as_any().downcast_ref::<StringArray>().unwrap();
+        let sess = batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
         assert_eq!(sess.value(0), "sess-1");
     }
 
@@ -244,7 +345,11 @@ mod tests {
         t.subagent_id = Some("agent-abc".into());
         let bytes = cache_parquet(&[t]).unwrap();
         let batch = read_back(&bytes);
-        let col = batch.column(2).as_any().downcast_ref::<StringArray>().unwrap();
+        let col = batch
+            .column(2)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
         assert_eq!(col.value(0), "agent-abc");
         assert!(!col.is_null(0));
     }
@@ -285,7 +390,10 @@ mod tests {
                 utilization: 0.42,
                 resets_at: Some(chrono::Utc.with_ymd_and_hms(2026, 5, 23, 12, 0, 0).unwrap()),
             }),
-            seven_day: Some(UsageBucket { utilization: 0.1, resets_at: None }),
+            seven_day: Some(UsageBucket {
+                utilization: 0.1,
+                resets_at: None,
+            }),
         };
         let sampled = chrono::Utc.with_ymd_and_hms(2026, 5, 23, 9, 30, 0).unwrap();
         let snapshot = AppSnapshot {
@@ -316,7 +424,11 @@ mod tests {
 
     #[test]
     fn caps_json_handles_no_sample() {
-        let creds = Credentials { access_token: "t".into(), subscription_type: "pro".into(), rate_limit_tier: "default".into() };
+        let creds = Credentials {
+            access_token: "t".into(),
+            subscription_type: "pro".into(),
+            rate_limit_tier: "default".into(),
+        };
         let bytes = caps_json(&AppSnapshot::default(), &creds).unwrap();
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert!(v["sampled_at"].is_null());
@@ -333,13 +445,28 @@ mod tests {
 
         let schema = batch.schema();
         let names: Vec<&str> = schema.fields().iter().map(|f| f.name().as_str()).collect();
-        assert_eq!(names, vec![
-            "sampled_at", "util_5h", "util_7d",
-            "burn_5h_cost_weighted", "burn_7d_cost_weighted",
-            "input_5h", "cache_creation_5h", "cache_read_5h", "output_5h",
-            "input_7d", "cache_creation_7d", "cache_read_7d", "output_7d",
-            "subscription_type", "rate_limit_tier", "resets_5h_iso", "resets_7d_iso",
-        ]);
+        assert_eq!(
+            names,
+            vec![
+                "sampled_at",
+                "util_5h",
+                "util_7d",
+                "burn_5h_cost_weighted",
+                "burn_7d_cost_weighted",
+                "input_5h",
+                "cache_creation_5h",
+                "cache_read_5h",
+                "output_5h",
+                "input_7d",
+                "cache_creation_7d",
+                "cache_read_7d",
+                "output_7d",
+                "subscription_type",
+                "rate_limit_tier",
+                "resets_5h_iso",
+                "resets_7d_iso",
+            ]
+        );
         assert_eq!(batch.num_rows(), 1);
 
         use arrow::datatypes::{DataType, TimeUnit};
@@ -349,16 +476,32 @@ mod tests {
         );
 
         use arrow::array::{Array, Float64Array, StringArray};
-        let u5 = batch.column(1).as_any().downcast_ref::<Float64Array>().unwrap();
+        let u5 = batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
         assert!((u5.value(0) - 0.42).abs() < 1e-9);
 
-        let burn5 = batch.column(3).as_any().downcast_ref::<Float64Array>().unwrap();
+        let burn5 = batch
+            .column(3)
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
         assert!(burn5.is_null(0));
 
-        let r7 = batch.column(16).as_any().downcast_ref::<StringArray>().unwrap();
+        let r7 = batch
+            .column(16)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
         assert!(r7.is_null(0));
 
-        let sub = batch.column(13).as_any().downcast_ref::<StringArray>().unwrap();
+        let sub = batch
+            .column(13)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
         assert_eq!(sub.value(0), "pro");
     }
 }

@@ -42,7 +42,10 @@ impl SupabaseStore {
     }
 
     pub fn object_url(&self, object_path: &str) -> String {
-        format!("{}/storage/v1/object/{}/{}", self.base_url, self.bucket, object_path)
+        format!(
+            "{}/storage/v1/object/{}/{}",
+            self.base_url, self.bucket, object_path
+        )
     }
 }
 
@@ -95,6 +98,9 @@ mod tests {
             prefix: "p".into(),
         };
         let store = SupabaseStore::new(&cfg);
-        assert_eq!(store.object_url("p/caps.json"), "https://x.supabase.co/storage/v1/object/b/p/caps.json");
+        assert_eq!(
+            store.object_url("p/caps.json"),
+            "https://x.supabase.co/storage/v1/object/b/p/caps.json"
+        );
     }
 }

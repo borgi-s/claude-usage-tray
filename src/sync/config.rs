@@ -30,7 +30,9 @@ const DEFAULT_BUCKET: &str = "usage-tracker";
 /// This is the per-user object-key segment, so it must not contain slashes,
 /// spaces, or `.` runs that could escape the prefix or confuse the storage API.
 fn is_valid_prefix(s: &str) -> bool {
-    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 /// Public entry: load `.env` (best-effort) then read from the environment.
@@ -63,7 +65,12 @@ fn from_env_inner() -> Result<Option<SyncConfig>> {
         .filter(|b| !b.is_empty())
         .unwrap_or_else(|| DEFAULT_BUCKET.to_string());
 
-    Ok(Some(SyncConfig { url, service_role_key: key, bucket, prefix }))
+    Ok(Some(SyncConfig {
+        url,
+        service_role_key: key,
+        bucket,
+        prefix,
+    }))
 }
 
 #[cfg(test)]
@@ -85,7 +92,12 @@ mod tests {
     }
 
     fn clear_env() {
-        for k in ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_BUCKET", "SUPABASE_USER_PREFIX"] {
+        for k in [
+            "SUPABASE_URL",
+            "SUPABASE_SERVICE_ROLE_KEY",
+            "SUPABASE_BUCKET",
+            "SUPABASE_USER_PREFIX",
+        ] {
             std::env::remove_var(k);
         }
     }
