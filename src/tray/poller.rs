@@ -106,6 +106,7 @@ fn polling_loop(
     // dashboard doesn't show stale/default data while the first poll is running.
     if let Ok(mut g) = shared.write() {
         g.last_status = last_status.clone();
+        g.interval_secs = interval.as_secs();
     }
 
     // Stage 7: best-effort Supabase sync. `None` when unconfigured (no .env) —
@@ -167,6 +168,7 @@ fn polling_loop(
             last_sample: last_sample.clone(),
             last_status: last_status.clone(),
             kpis,
+            interval_secs: interval.as_secs(),
         };
         // Stage 7: best-effort upload of the snapshot we just built. Re-read the
         // calibration log so the parquet matches this tick.

@@ -21,6 +21,10 @@ pub struct AppSnapshot {
     pub last_sample: Option<(UsageSnapshot, DateTime<Utc>)>,
     pub last_status: LastStatus,
     pub kpis: DashboardKpis,
+    /// Poll cadence in seconds, set by the poller. Lets the dashboard banner
+    /// show the next-poll ETA. Defaults to 0 (only observable pre-first-poll,
+    /// when last_sample is None and the ETA is hidden anyway).
+    pub interval_secs: u64,
 }
 
 /// Pre-computed KPIs so the dashboard doesn't recompute them every frame.
