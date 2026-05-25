@@ -43,16 +43,7 @@ pub fn per_hour_medians(
 
     let mut out: [Option<f64>; 24] = [None; 24];
     for (h, samples) in buckets.iter_mut().enumerate() {
-        if samples.is_empty() {
-            continue;
-        }
-        samples.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let n = samples.len();
-        out[h] = Some(if n % 2 == 1 {
-            samples[n / 2]
-        } else {
-            (samples[n / 2 - 1] + samples[n / 2]) / 2.0
-        });
+        out[h] = crate::calibration::history::median(samples);
     }
     out
 }

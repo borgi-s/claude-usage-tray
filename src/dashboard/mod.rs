@@ -6,6 +6,7 @@
 pub mod app;
 pub mod axis;
 pub mod bands;
+pub mod calibration_tab;
 pub mod chart_5h;
 pub mod chart_daily;
 pub mod chart_weekly;
