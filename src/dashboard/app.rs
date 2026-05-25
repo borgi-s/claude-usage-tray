@@ -2,6 +2,9 @@
 //! Close requests hide the window instead of destroying it; the tray re-shows
 //! it via the shared signals.
 
+use crate::calibration::history;
+use crate::calibration::WindowKind;
+use crate::dashboard::calibration_tab::CalibData;
 use crate::dashboard::filters::FilterState;
 use crate::dashboard::range::Range;
 use crate::dashboard::sessions_table::TableControls;
@@ -23,6 +26,7 @@ const OFFSCREEN: egui::Pos2 = egui::pos2(-32000.0, -32000.0);
 enum Tab {
     Charts,
     Sessions,
+    Calibration,
 }
 
 /// Cheap signature for the filtered-view memo. Equal signature ⇒ reuse cache.
@@ -31,6 +35,13 @@ struct ViewSig {
     filter: FilterState,
     n_turns: usize,
     last_ts: Option<DateTime<Utc>>,
+}
+
+/// Cheap signature for the calib-data memo. Equal signature ⇒ reuse cache.
+#[derive(Debug, Clone, PartialEq)]
+struct CalibSig {
+    n_log: usize,
+    n_turns: usize,
 }
 
 pub struct DashboardApp {
@@ -46,6 +57,7 @@ pub struct DashboardApp {
     filters: FilterState,
     table_controls: TableControls,
     cached_view: Option<(ViewSig, AppSnapshot)>,
+    cached_calib: Option<(CalibSig, CalibData)>,
 }
 
 impl DashboardApp {
@@ -63,6 +75,7 @@ impl DashboardApp {
             filters: FilterState::default(),
             table_controls: TableControls::default(),
             cached_view: None,
+            cached_calib: None,
         }
     }
 
@@ -87,6 +100,37 @@ impl DashboardApp {
         view.kpis = kpis;
         self.cached_view = Some((sig, view.clone()));
         view
+    }
+
+    /// Build (or reuse) the Calibration tab's derived series. Always uses the
+    /// UNFILTERED snapshot — calibration is account-wide. Memoized on the log +
+    /// turn lengths (both append-only, so a length change ⇒ new data).
+    fn calib_data(&mut self, snap: &AppSnapshot) -> CalibData {
+        let sig = CalibSig {
+            n_log: snap.log.len(),
+            n_turns: snap.turns.len(),
+        };
+        if let Some((cached_sig, data)) = &self.cached_calib {
+            if *cached_sig == sig {
+                return data.clone();
+            }
+        }
+        let data = CalibData {
+            implied_5h: Arc::new(history::implied_cap_series(
+                &snap.log,
+                &snap.turns,
+                WindowKind::FiveHour,
+            )),
+            implied_week: Arc::new(history::implied_cap_series(
+                &snap.log,
+                &snap.turns,
+                WindowKind::Weekly,
+            )),
+            stats_5h: history::per_hour_stats(&snap.log, &snap.turns, WindowKind::FiveHour),
+            stats_week: history::per_hour_stats(&snap.log, &snap.turns, WindowKind::Weekly),
+        };
+        self.cached_calib = Some((sig, data.clone()));
+        data
     }
 }
 
@@ -153,6 +197,7 @@ impl eframe::App for DashboardApp {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.tab, Tab::Charts, "Charts");
                 ui.selectable_value(&mut self.tab, Tab::Sessions, "Sessions");
+                ui.selectable_value(&mut self.tab, Tab::Calibration, "Calibration");
             });
         });
 
@@ -193,6 +238,10 @@ impl eframe::App for DashboardApp {
             }
             Tab::Sessions => {
                 crate::dashboard::sessions_table::render(ui, &view.turns, &mut self.table_controls);
+            }
+            Tab::Calibration => {
+                let calib = self.calib_data(&snap);
+                crate::dashboard::calibration_tab::render(ui, &snap, &calib);
             }
         });
 
