@@ -33,7 +33,7 @@ User is a **Rust beginner** (zero prior Rust experience as of 2026-05-22). Expla
 - **Stage 8 (mini-project 2) spec:** `docs/superpowers/specs/2026-05-25-stage-8-calibration-history-design.md` — Calibration tab: 4 egui_plot charts (implied 5h/weekly cap over time as hour-banded scatters; hour-of-day cap bins with median + IQR + fitted curve). Account-wide (ignores the global filter bar).
 - **Stage 8 (mini-project 2) plan:** `docs/superpowers/plans/2026-05-25-stage-8-calibration-history.md` — task plan. **Shipped 2026-05-25 (tag `v0.9.0`).**
 - **Stage 8 (mini-project 3) spec:** `docs/superpowers/specs/2026-05-25-stage-8-live-api-banner-design.md` — live API status banner: persistent top strip showing poll status badge + last-poll age + next-poll ETA + live 5h/7d util. Reads the shared snapshot (adds `interval_secs`); account-wide (ignores the global filter bar).
-- **Stage 8 (mini-project 3) plan:** `docs/superpowers/plans/2026-05-25-stage-8-live-api-banner.md` — task plan.
+- **Stage 8 (mini-project 3) plan:** `docs/superpowers/plans/2026-05-25-stage-8-live-api-banner.md` — task plan. **Shipped 2026-05-25 (tag `v0.10.0`).**
 
 Stage 8 ships as a series of mini-projects (one per spec+plan); the remaining one (settings panel) gets its own spec when started.
 
@@ -49,7 +49,7 @@ Stage 8 ships as a series of mini-projects (one per spec+plan); the remaining on
 | 6 | egui dashboard window | ✅ Shipped — tag `v0.6.0`, pushed to GitHub |
 | 6.5 | Update notifier (GitHub Releases API) | ✅ Shipped — tag `v0.7.1` |
 | 7 | Supabase Storage upload | ✅ Shipped — tag `v0.7.0`, pushed to GitHub |
-| 8 | Streamlit feature parity (sessions table, filters, calibration history) | 🔶 In progress — mini-project 1 (sessions table + filters) shipped `v0.8.0`; mini-project 2 (calibration history tab) shipped `v0.9.0` |
+| 8 | Streamlit feature parity (sessions table, filters, calibration history, live API banner) | 🔶 In progress — mini-project 1 (sessions table + filters) shipped `v0.8.0`; mini-project 2 (calibration history tab) shipped `v0.9.0`; mini-project 3 (live API status banner) shipped `v0.10.0` |
 
 ## Tech stack (locked in design)
 
