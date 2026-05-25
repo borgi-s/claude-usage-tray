@@ -4,6 +4,7 @@ use crate::api::usage::UsageSnapshot;
 use crate::calibration::anchors::DerivedCaps;
 use crate::calibration::live::LiveUtil;
 use crate::data::parser::Turn;
+use crate::log::calibration::CalibrationSample;
 use crate::render::LastStatus;
 use chrono::{DateTime, Utc};
 use std::sync::Arc;
@@ -12,6 +13,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Default)]
 pub struct AppSnapshot {
     pub turns: Arc<Vec<Turn>>,
+    pub log: Arc<Vec<CalibrationSample>>,
     pub caps: DerivedCaps,
     pub hourly_5h: [f64; 24],
     pub hourly_week: [f64; 24],

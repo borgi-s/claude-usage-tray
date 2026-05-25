@@ -130,7 +130,7 @@ fn polling_loop(
 
         // Stage 5: refresh local cache + derive caps + live util. NOW also
         // returns the turns Arc so we can put it on the shared snapshot.
-        let (calib, turns_arc) = compute_calibration_with_turns();
+        let (calib, turns_arc, log_arc) = compute_calibration_with_turns();
 
         // API fetch. Update persistent last_sample / last_status so the shared
         // snapshot always carries the freshest available status even on 429/error.
@@ -159,6 +159,7 @@ fn polling_loop(
         let kpis = compute_kpis(&turns_arc, &calib.caps);
         let snapshot = AppSnapshot {
             turns: turns_arc,
+            log: log_arc,
             caps: calib.caps,
             hourly_5h: calib.hourly_5h,
             hourly_week: calib.hourly_week,
@@ -210,7 +211,11 @@ fn polling_loop(
 /// (calibration, turns_arc) so the polling loop can put turns on the shared
 /// snapshot. On any error, returns (default, Arc::new(Vec::new())) so the
 /// poll itself still proceeds.
-fn compute_calibration_with_turns() -> (PollCalibration, Arc<Vec<Turn>>) {
+fn compute_calibration_with_turns() -> (
+    PollCalibration,
+    Arc<Vec<Turn>>,
+    Arc<Vec<crate::log::calibration::CalibrationSample>>,
+) {
     use crate::calibration::anchors::derive_caps;
     use crate::calibration::hourly::hour_of_day_cap_series;
     use crate::calibration::live::live_util_now;
@@ -222,7 +227,11 @@ fn compute_calibration_with_turns() -> (PollCalibration, Arc<Vec<Turn>>) {
         Ok(t) => t,
         Err(e) => {
             tracing::warn!(error = %e, "cache::refresh failed; skipping calibration this tick");
-            return (PollCalibration::default(), Arc::new(Vec::new()));
+            return (
+                PollCalibration::default(),
+                Arc::new(Vec::new()),
+                Arc::new(Vec::new()),
+            );
         }
     };
     let turns_arc = Arc::new(turns);
@@ -230,7 +239,7 @@ fn compute_calibration_with_turns() -> (PollCalibration, Arc<Vec<Turn>>) {
         Ok(l) => l,
         Err(e) => {
             tracing::warn!(error = %e, "calibration log read failed; skipping calibration this tick");
-            return (PollCalibration::default(), turns_arc);
+            return (PollCalibration::default(), turns_arc, Arc::new(Vec::new()));
         }
     };
 
@@ -256,6 +265,7 @@ fn compute_calibration_with_turns() -> (PollCalibration, Arc<Vec<Turn>>) {
             hourly_week,
         },
         turns_arc,
+        Arc::new(log),
     )
 }
 
