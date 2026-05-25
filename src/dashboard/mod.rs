@@ -16,6 +16,7 @@ pub mod kpi;
 pub mod range;
 pub mod series;
 pub mod sessions_table;
+pub mod status_banner;
 
 use crate::dashboard::app::DashboardApp;
 use crate::shared::SharedSnapshot;
