@@ -3,6 +3,7 @@
 //! and live 5h/7d utilization. Mirrors the `--watch` CLI footer in egui form.
 
 use crate::api::usage::{UsageBucket, UsageSnapshot};
+use crate::render::LastStatus;
 use chrono::{DateTime, Duration, Utc};
 
 /// Format a poll's age at seconds resolution: `12s ago`, `1m 5s ago`,
@@ -56,6 +57,35 @@ fn bucket_str(b: Option<&UsageBucket>, now: DateTime<Utc>) -> String {
                 None => format!("{}%", pct),
             }
         }
+    }
+}
+
+/// Visual severity of the current poll status — drives the strip background.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Severity {
+    /// Initial or Ok: neutral strip (color would be visual noise when nothing's wrong).
+    Neutral,
+    /// Rate-limited: amber strip.
+    Warn,
+    /// Error: red strip.
+    Error,
+}
+
+fn severity(status: &LastStatus) -> Severity {
+    match status {
+        LastStatus::Initial | LastStatus::Ok => Severity::Neutral,
+        LastStatus::RateLimited => Severity::Warn,
+        LastStatus::Error(_) => Severity::Error,
+    }
+}
+
+/// Text shown next to the status dot. Empty for `Ok` — the green dot is enough.
+fn badge_label(status: &LastStatus) -> String {
+    match status {
+        LastStatus::Initial => "fetching\u{2026}".to_string(),
+        LastStatus::Ok => String::new(),
+        LastStatus::RateLimited => "rate-limited".to_string(),
+        LastStatus::Error(msg) => format!("error: {}", msg),
     }
 }
 
@@ -124,5 +154,21 @@ mod tests {
             util_line(Some(&snap), now_fixed()),
             "5h 50% \u{00B7} 7d \u{2014}"
         );
+    }
+
+    #[test]
+    fn severity_maps_each_status() {
+        assert_eq!(severity(&LastStatus::Initial), Severity::Neutral);
+        assert_eq!(severity(&LastStatus::Ok), Severity::Neutral);
+        assert_eq!(severity(&LastStatus::RateLimited), Severity::Warn);
+        assert_eq!(severity(&LastStatus::Error("x".into())), Severity::Error);
+    }
+
+    #[test]
+    fn badge_label_per_status() {
+        assert_eq!(badge_label(&LastStatus::Initial), "fetching\u{2026}");
+        assert_eq!(badge_label(&LastStatus::Ok), "");
+        assert_eq!(badge_label(&LastStatus::RateLimited), "rate-limited");
+        assert_eq!(badge_label(&LastStatus::Error("boom".into())), "error: boom");
     }
 }
