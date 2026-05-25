@@ -69,6 +69,41 @@ pub fn implied_cap_series(
     out
 }
 
+/// Per-local-hour summary of implied caps across qualifying anchors.
+#[derive(Debug, Clone, Default)]
+pub struct HourStat {
+    pub median: Option<f64>,
+    pub p25: Option<f64>,
+    pub p75: Option<f64>,
+    pub n: usize,
+}
+
+/// Median / p25 / p75 / count of implied caps per local hour-of-day bin.
+pub fn per_hour_stats(
+    log: &[CalibrationSample],
+    turns: &[Turn],
+    kind: WindowKind,
+) -> [HourStat; 24] {
+    let tz: Tz = config::LOCAL_TZ
+        .parse()
+        .expect("LOCAL_TZ must be a valid IANA name");
+    let mut buckets: [Vec<f64>; 24] = Default::default();
+    for (ts, cap) in qualifying_implied(log, turns, kind) {
+        let h = ts.with_timezone(&tz).hour() as usize;
+        buckets[h].push(cap);
+    }
+    let mut out: [HourStat; 24] = Default::default();
+    for (h, vals) in buckets.iter_mut().enumerate() {
+        out[h] = HourStat {
+            median: median(vals),
+            p25: percentile(vals, 0.25),
+            p75: percentile(vals, 0.75),
+            n: vals.len(),
+        };
+    }
+    out
+}
+
 /// Median of a slice (sorts in place). `None` if empty.
 pub fn median(values: &mut [f64]) -> Option<f64> {
     if values.is_empty() {
@@ -200,5 +235,54 @@ mod tests {
         assert_eq!(percentile(&mut [0.0, 1.0, 2.0, 3.0, 4.0], 0.75), Some(3.0));
         // Two values, p25 interpolates: 0 + (10-0)*0.25 = 2.5
         assert_eq!(percentile(&mut [0.0, 10.0], 0.25), Some(2.5));
+    }
+
+    #[test]
+    fn per_hour_stats_percentiles_across_samples() {
+        // Three separate days, each one turn before a 14:00-UTC (16:00 local)
+        // anchor at util 1.0. Day gaps exceed the 4.5h window, so each window's
+        // burn is that day's single turn => implied caps 100/200/300 in bin 16.
+        let turns = vec![
+            turn(utc(2026, 5, 18, 13, 0), 100),
+            turn(utc(2026, 5, 19, 13, 0), 200),
+            turn(utc(2026, 5, 20, 13, 0), 300),
+        ];
+        let log = vec![
+            sample(utc(2026, 5, 18, 14, 0), 1.0),
+            sample(utc(2026, 5, 19, 14, 0), 1.0),
+            sample(utc(2026, 5, 20, 14, 0), 1.0),
+        ];
+        let stats = per_hour_stats(&log, &turns, WindowKind::FiveHour);
+        let s = &stats[16];
+        assert_eq!(s.n, 3);
+        assert_eq!(s.median, Some(200.0));
+        assert_eq!(s.p25, Some(150.0));
+        assert_eq!(s.p75, Some(250.0));
+    }
+
+    #[test]
+    fn per_hour_stats_empty_bins_are_default() {
+        let stats = per_hour_stats(&[], &[], WindowKind::FiveHour);
+        for s in &stats {
+            assert!(s.median.is_none());
+            assert!(s.p25.is_none());
+            assert!(s.p75.is_none());
+            assert_eq!(s.n, 0);
+        }
+    }
+
+    #[test]
+    fn per_hour_stats_median_agrees_with_hourly_per_hour_medians() {
+        let turns = vec![
+            turn(utc(2026, 5, 18, 13, 0), 100),
+            turn(utc(2026, 5, 19, 13, 0), 300),
+        ];
+        let log = vec![
+            sample(utc(2026, 5, 18, 14, 0), 1.0),
+            sample(utc(2026, 5, 19, 14, 0), 1.0),
+        ];
+        let stats = per_hour_stats(&log, &turns, WindowKind::FiveHour);
+        let raw = crate::calibration::hourly::per_hour_medians(&log, &turns, WindowKind::FiveHour);
+        assert_eq!(stats[16].median, raw[16]);
     }
 }
