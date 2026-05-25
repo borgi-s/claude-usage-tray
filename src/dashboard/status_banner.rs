@@ -53,7 +53,11 @@ fn bucket_str(b: Option<&UsageBucket>, now: DateTime<Utc>) -> String {
             let pct = (bucket.utilization * 100.0).round() as i64;
             match bucket.resets_at {
                 Some(when) => {
-                    format!("{}% (resets {})", pct, crate::render::format_duration(when - now))
+                    format!(
+                        "{}% (resets {})",
+                        pct,
+                        crate::render::format_duration(when - now)
+                    )
                 }
                 None => format!("{}%", pct),
             }
@@ -187,7 +191,10 @@ mod tests {
 
     #[test]
     fn util_line_no_sample_shows_dashes() {
-        assert_eq!(util_line(None, now_fixed()), "5h \u{2014} \u{00B7} 7d \u{2014}");
+        assert_eq!(
+            util_line(None, now_fixed()),
+            "5h \u{2014} \u{00B7} 7d \u{2014}"
+        );
     }
 
     #[test]
@@ -238,6 +245,9 @@ mod tests {
         assert_eq!(badge_label(&LastStatus::Initial), "fetching\u{2026}");
         assert_eq!(badge_label(&LastStatus::Ok), "");
         assert_eq!(badge_label(&LastStatus::RateLimited), "rate-limited");
-        assert_eq!(badge_label(&LastStatus::Error("boom".into())), "error: boom");
+        assert_eq!(
+            badge_label(&LastStatus::Error("boom".into())),
+            "error: boom"
+        );
     }
 }

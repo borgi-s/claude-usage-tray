@@ -32,8 +32,10 @@ User is a **Rust beginner** (zero prior Rust experience as of 2026-05-22). Expla
 - **Stage 8 (mini-project 1) plan:** `docs/superpowers/plans/2026-05-24-stage-8-sessions-table.md` — task plan. **Shipped 2026-05-24 (tag `v0.8.0`).**
 - **Stage 8 (mini-project 2) spec:** `docs/superpowers/specs/2026-05-25-stage-8-calibration-history-design.md` — Calibration tab: 4 egui_plot charts (implied 5h/weekly cap over time as hour-banded scatters; hour-of-day cap bins with median + IQR + fitted curve). Account-wide (ignores the global filter bar).
 - **Stage 8 (mini-project 2) plan:** `docs/superpowers/plans/2026-05-25-stage-8-calibration-history.md` — task plan. **Shipped 2026-05-25 (tag `v0.9.0`).**
+- **Stage 8 (mini-project 3) spec:** `docs/superpowers/specs/2026-05-25-stage-8-live-api-banner-design.md` — live API status banner: persistent top strip showing poll status badge + last-poll age + next-poll ETA + live 5h/7d util. Reads the shared snapshot (adds `interval_secs`); account-wide (ignores the global filter bar).
+- **Stage 8 (mini-project 3) plan:** `docs/superpowers/plans/2026-05-25-stage-8-live-api-banner.md` — task plan.
 
-Stage 8 ships as a series of mini-projects (one per spec+plan); the remaining ones (live API status banner, settings panel) get their own specs when started.
+Stage 8 ships as a series of mini-projects (one per spec+plan); the remaining one (settings panel) gets its own spec when started.
 
 ## Stage roadmap (summary — see spec for details)
 
