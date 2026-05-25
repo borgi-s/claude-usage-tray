@@ -187,9 +187,9 @@ mod tests {
         // tokens in the same 5h window => implied cap = 100 / 1.0 = 100.
         let turns = vec![turn(utc(2026, 5, 24, 13, 0), 100)];
         let log = vec![
-            sample(utc(2026, 5, 24, 14, 0), 1.0),  // qualifies
-            sample(utc(2026, 5, 24, 15, 0), 0.5),  // util too low => excluded
-            sample(utc(2026, 5, 24, 16, 0), 1.2),  // util too high => excluded
+            sample(utc(2026, 5, 24, 14, 0), 1.0), // qualifies
+            sample(utc(2026, 5, 24, 15, 0), 0.5), // util too low => excluded
+            sample(utc(2026, 5, 24, 16, 0), 1.2), // util too high => excluded
         ];
         let pts = implied_cap_series(&log, &turns, WindowKind::FiveHour);
         assert_eq!(pts.len(), 1);

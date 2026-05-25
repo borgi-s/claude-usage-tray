@@ -24,6 +24,7 @@ const C_NIGHT: Color32 = Color32::from_rgb(120, 110, 220); // 0–6  indigo
 const C_MORNING: Color32 = Color32::from_rgb(60, 190, 180); // 6–12 teal
 const C_AFTERNOON: Color32 = Color32::from_rgb(240, 180, 70); // 12–18 amber
 const C_EVENING: Color32 = Color32::from_rgb(220, 90, 180); // 18–24 magenta
+
 // Hour-of-day chart colors.
 const C_MEDIAN: Color32 = Color32::from_rgb(79, 140, 255); // blue (matches chart_5h)
 const C_FITTED: Color32 = Color32::from_rgb(255, 165, 79); // orange
@@ -181,8 +182,7 @@ fn hour_of_day(ui: &mut Ui, id: &str, stats: &[HourStat; 24], fitted: &[f64; 24]
 
             // Fitted curve (dense, 24 hours) — only if it carries signal.
             if fitted.iter().any(|&v| v > 0.0) {
-                let curve: Vec<[f64; 2]> =
-                    (0..24).map(|h| [h as f64, fitted[h] / M]).collect();
+                let curve: Vec<[f64; 2]> = (0..24).map(|h| [h as f64, fitted[h] / M]).collect();
                 plot_ui.line(
                     Line::new(PlotPoints::from(curve))
                         .color(C_FITTED)
