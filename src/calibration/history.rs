@@ -2,6 +2,73 @@
 //! dashboard's Calibration tab. Pure functions; UI lives in
 //! `dashboard/calibration_tab.rs`.
 
+use crate::calibration::anchors::{five_hour_burn_at, weekly_burn_at};
+use crate::calibration::WindowKind;
+use crate::config;
+use crate::data::parser::Turn;
+use crate::log::calibration::CalibrationSample;
+use chrono::{DateTime, Timelike, Utc};
+use chrono_tz::Tz;
+
+/// (sample ts, implied cap in raw output tokens) for every sample that
+/// qualifies as an anchor for `kind`: util present, within
+/// `config::MIN_ANCHOR_UTIL..=MAX_ANCHOR_UTIL`, and window burn > 0.
+fn qualifying_implied(
+    log: &[CalibrationSample],
+    turns: &[Turn],
+    kind: WindowKind,
+) -> Vec<(DateTime<Utc>, f64)> {
+    let mut out = Vec::new();
+    for s in log {
+        let util_opt = match kind {
+            WindowKind::FiveHour => s.five_hour_util,
+            WindowKind::Weekly => s.seven_day_util,
+        };
+        let Some(util) = util_opt else { continue };
+        if !(config::MIN_ANCHOR_UTIL..=config::MAX_ANCHOR_UTIL).contains(&util) {
+            continue;
+        }
+        let burn = match kind {
+            WindowKind::FiveHour => five_hour_burn_at(turns, s.ts),
+            WindowKind::Weekly => weekly_burn_at(turns, s.ts),
+        };
+        if burn == 0 || util <= 0.0 {
+            continue;
+        }
+        out.push((s.ts, burn as f64 / util));
+    }
+    out
+}
+
+/// One implied-cap observation derived from a single calibration sample.
+#[derive(Debug, Clone)]
+pub struct ImpliedPoint {
+    pub ts: DateTime<Utc>,
+    pub cap: f64,        // raw output tokens
+    pub local_hour: u32, // 0..=23, local-TZ hour of `ts`
+}
+
+/// Implied cap per qualifying sample, sorted by ts.
+pub fn implied_cap_series(
+    log: &[CalibrationSample],
+    turns: &[Turn],
+    kind: WindowKind,
+) -> Vec<ImpliedPoint> {
+    let tz: Tz = config::LOCAL_TZ
+        .parse()
+        .expect("LOCAL_TZ must be a valid IANA name");
+    let mut out: Vec<ImpliedPoint> = qualifying_implied(log, turns, kind)
+        .into_iter()
+        .map(|(ts, cap)| ImpliedPoint {
+            ts,
+            cap,
+            local_hour: ts.with_timezone(&tz).hour(),
+        })
+        .collect();
+    out.sort_by_key(|p| p.ts);
+    out
+}
+
 /// Median of a slice (sorts in place). `None` if empty.
 pub fn median(values: &mut [f64]) -> Option<f64> {
     if values.is_empty() {
@@ -37,6 +104,84 @@ pub fn percentile(values: &mut [f64], p: f64) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::calibration::WindowKind;
+    use crate::data::parser::Turn;
+    use crate::log::calibration::CalibrationSample;
+    use chrono::{DateTime, TimeZone, Utc};
+    use std::path::PathBuf;
+
+    fn utc(y: i32, m: u32, d: u32, h: u32, mi: u32) -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(y, m, d, h, mi, 0).unwrap()
+    }
+
+    fn turn(ts: DateTime<Utc>, output: u64) -> Turn {
+        Turn {
+            ts,
+            session_id: String::new(),
+            subagent_id: None,
+            is_subagent: false,
+            project_cwd: String::new(),
+            model: String::new(),
+            version: String::new(),
+            input_tokens: 0,
+            output_tokens: output,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+            source_file: PathBuf::new(),
+            is_rate_limit_error: false,
+        }
+    }
+
+    fn sample(ts: DateTime<Utc>, util: f64) -> CalibrationSample {
+        CalibrationSample {
+            schema_version: 1,
+            ts,
+            five_hour_util: Some(util),
+            five_hour_resets_at: None,
+            seven_day_util: Some(util),
+            seven_day_resets_at: None,
+            subscription_type: "pro".into(),
+            rate_limit_tier: "default".into(),
+        }
+    }
+
+    #[test]
+    fn implied_filters_util_range_and_computes_cap() {
+        // Anchor 2026-05-24 14:00 UTC, util 1.0, one prior turn of 100 output
+        // tokens in the same 5h window => implied cap = 100 / 1.0 = 100.
+        let turns = vec![turn(utc(2026, 5, 24, 13, 0), 100)];
+        let log = vec![
+            sample(utc(2026, 5, 24, 14, 0), 1.0),  // qualifies
+            sample(utc(2026, 5, 24, 15, 0), 0.5),  // util too low => excluded
+            sample(utc(2026, 5, 24, 16, 0), 1.2),  // util too high => excluded
+        ];
+        let pts = implied_cap_series(&log, &turns, WindowKind::FiveHour);
+        assert_eq!(pts.len(), 1);
+        assert!((pts[0].cap - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn implied_drops_zero_burn_windows() {
+        // Util qualifies but there are no turns => burn 0 => dropped.
+        let log = vec![sample(utc(2026, 5, 24, 14, 0), 1.0)];
+        let pts = implied_cap_series(&log, &[], WindowKind::FiveHour);
+        assert!(pts.is_empty());
+    }
+
+    #[test]
+    fn implied_local_hour_is_local_not_utc() {
+        // 14:00 UTC = 16:00 local (Europe/Copenhagen, CEST).
+        let turns = vec![turn(utc(2026, 5, 24, 13, 0), 100)];
+        let log = vec![sample(utc(2026, 5, 24, 14, 0), 1.0)];
+        let pts = implied_cap_series(&log, &turns, WindowKind::FiveHour);
+        assert_eq!(pts[0].local_hour, 16);
+    }
+
+    #[test]
+    fn implied_empty_log_is_empty() {
+        assert!(implied_cap_series(&[], &[], WindowKind::FiveHour).is_empty());
+    }
 
     #[test]
     fn median_handles_odd_even_empty() {
