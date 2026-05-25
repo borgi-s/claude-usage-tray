@@ -2,6 +2,7 @@
 //! computes the current live util, and (ahead of Stage 6) a per-hour cap series.
 
 pub mod anchors;
+pub mod history;
 pub mod hourly;
 pub mod live;
 
