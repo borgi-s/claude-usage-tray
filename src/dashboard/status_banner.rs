@@ -5,6 +5,7 @@
 use crate::api::usage::{UsageBucket, UsageSnapshot};
 use crate::render::LastStatus;
 use chrono::{DateTime, Duration, Utc};
+use egui::{Color32, Ui};
 
 /// Format a poll's age at seconds resolution: `12s ago`, `1m 5s ago`,
 /// `1h 1m ago`. Negative spans clamp to `0s ago`.
@@ -87,6 +88,74 @@ fn badge_label(status: &LastStatus) -> String {
         LastStatus::RateLimited => "rate-limited".to_string(),
         LastStatus::Error(msg) => format!("error: {}", msg),
     }
+}
+
+/// Paint the status strip. `now` is passed in (not `Utc::now()` internally) to
+/// keep the helpers deterministic for tests and match `render::draw_frame`'s
+/// convention. Reads the unfiltered snapshot fields — poll status is account-wide.
+pub fn render(
+    ui: &mut Ui,
+    last_sample: Option<&(UsageSnapshot, DateTime<Utc>)>,
+    last_status: &LastStatus,
+    interval_secs: u64,
+    now: DateTime<Utc>,
+) {
+    // Capture the theme's text color before we borrow `ui` mutably in the frame.
+    let neutral_text = ui.visuals().text_color();
+    let (fill, text_color) = match severity(last_status) {
+        Severity::Neutral => (None, neutral_text),
+        Severity::Warn => (
+            Some(Color32::from_rgb(70, 55, 25)),
+            Color32::from_rgb(230, 190, 90),
+        ),
+        Severity::Error => (
+            Some(Color32::from_rgb(70, 30, 30)),
+            Color32::from_rgb(235, 130, 120),
+        ),
+    };
+
+    let mut frame = egui::Frame::default().inner_margin(egui::Margin::symmetric(8.0, 4.0));
+    if let Some(c) = fill {
+        frame = frame.fill(c);
+    }
+
+    frame.show(ui, |ui| {
+        ui.horizontal(|ui| {
+            // Status dot: green only when the last poll succeeded.
+            let dot = match last_status {
+                LastStatus::Ok => Color32::from_rgb(80, 200, 120),
+                LastStatus::Initial => Color32::GRAY,
+                LastStatus::RateLimited => Color32::from_rgb(230, 190, 90),
+                LastStatus::Error(_) => Color32::from_rgb(235, 130, 120),
+            };
+            ui.colored_label(dot, "\u{25CF}"); // ● filled circle
+
+            // Badge (empty in the Ok state — the green dot says it all).
+            let badge = badge_label(last_status);
+            if !badge.is_empty() {
+                ui.colored_label(text_color, badge);
+                ui.label("\u{00B7}");
+            }
+
+            // Last-poll age.
+            let age = match last_sample {
+                Some((_, t)) => format!("updated {}", format_age(now - *t)),
+                None => "updated never".to_string(),
+            };
+            ui.colored_label(text_color, age);
+
+            // Next-poll ETA (only meaningful once a poll has landed).
+            if let Some((_, t)) = last_sample {
+                let next = *t + Duration::seconds(interval_secs as i64);
+                ui.label("\u{00B7}");
+                ui.colored_label(text_color, format!("next in {}", format_eta(next - now)));
+            }
+
+            // Live util.
+            ui.label("\u{00B7}");
+            ui.colored_label(text_color, util_line(last_sample.map(|(s, _)| s), now));
+        });
+    });
 }
 
 #[cfg(test)]

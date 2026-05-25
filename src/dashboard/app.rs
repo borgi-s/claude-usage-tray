@@ -184,6 +184,16 @@ impl eframe::App for DashboardApp {
         let all_turns = snap.turns.clone();
         let view = self.filtered_view(&snap);
 
+        egui::TopBottomPanel::top("status_banner_panel").show(ctx, |ui| {
+            crate::dashboard::status_banner::render(
+                ui,
+                snap.last_sample.as_ref(),
+                &snap.last_status,
+                snap.interval_secs,
+                Utc::now(),
+            );
+        });
+
         egui::TopBottomPanel::top("filter_bar_panel").show(ctx, |ui| {
             ui.add_space(4.0);
             crate::dashboard::filter_bar::render(
