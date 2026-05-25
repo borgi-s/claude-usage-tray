@@ -73,6 +73,7 @@ Stage 8 ships as a series of mini-projects (one per spec+plan); the remaining on
 - No commits with `Co-Authored-By: Claude` or "Generated with Claude Code" attribution.
 - Commit style: conventional (`feat:`, `fix:`, `style:`, `chore:`). Match what the plan's commit messages use.
 - `cargo fmt` + `cargo clippy --all-targets -- -D warnings` clean before each release tag.
+- Version bumps must `git add Cargo.toml Cargo.lock` together — bumping the version changes `Cargo.lock`'s own `version =` line, which `cargo build/test` regenerates silently.
 
 ## Known quirks (discovered during Stage 1, defer to a later stage)
 
@@ -97,3 +98,4 @@ When resuming work in this repo:
 3. Verify state: `cargo --version` works? Repo initialized? What stage tag is on HEAD (`git describe --tags`)?
 4. Pick the right stage plan in `docs/superpowers/plans/`. Stages execute sequentially — finish one before planning the next.
 5. The Stage 1 plan has inline notes on Rust idioms for a beginner; keep that style for Stages 2-8 plans when written.
+6. If using `EnterWorktree` for a mini-project, set `git config worktree.baseRef head` first — it otherwise branches from `origin/main` and drops the local-only spec+plan commits (see memory `reference_enterworktree_baseref`).
