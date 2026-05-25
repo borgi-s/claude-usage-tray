@@ -138,7 +138,7 @@ pub fn render(
             let badge = badge_label(last_status);
             if !badge.is_empty() {
                 ui.colored_label(text_color, badge);
-                ui.label("\u{00B7}");
+                ui.colored_label(text_color, "\u{00B7}");
             }
 
             // Last-poll age.
@@ -151,12 +151,12 @@ pub fn render(
             // Next-poll ETA (only meaningful once a poll has landed).
             if let Some((_, t)) = last_sample {
                 let next = *t + Duration::seconds(interval_secs as i64);
-                ui.label("\u{00B7}");
+                ui.colored_label(text_color, "\u{00B7}");
                 ui.colored_label(text_color, format!("next in {}", format_eta(next - now)));
             }
 
             // Live util.
-            ui.label("\u{00B7}");
+            ui.colored_label(text_color, "\u{00B7}");
             ui.colored_label(text_color, util_line(last_sample.map(|(s, _)| s), now));
         });
     });
