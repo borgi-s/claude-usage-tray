@@ -63,7 +63,7 @@ fn main() -> Result<()> {
         claude_usage_tray::watch::run(cli.interval.as_secs())?;
     } else {
         let _guard = claude_usage_tray::log::tray::init_file_subscriber(&cli.log_level)?;
-        claude_usage_tray::tray::run(cli.interval.as_secs())?;
+        claude_usage_tray::tray::run()?;
         // _guard drops at end of this branch → tracing-appender flushes pending events.
     }
     Ok(())

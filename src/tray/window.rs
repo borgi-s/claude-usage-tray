@@ -58,6 +58,7 @@ pub struct TrayState {
     pub last_hourly_5h: Option<[f64; 24]>,
     pub last_hourly_week: Option<[f64; 24]>,
     pub shared: crate::shared::SharedSnapshot,
+    pub settings: crate::shared::SharedSettings,
     pub dashboard: std::sync::Arc<std::sync::Mutex<Option<crate::dashboard::DashboardHandle>>>,
     pub update_rx: Receiver<UpdateEvent>,
     pub update_tx: Sender<UpdateEvent>,
@@ -538,7 +539,7 @@ fn on_left_click(state: &mut TrayState) {
         _ => {
             // No dashboard yet (first click) — spawn the single persistent thread.
             tracing::info!("spawning dashboard window");
-            *guard = Some(crate::dashboard::launch(state.shared.clone()));
+            *guard = Some(crate::dashboard::launch(state.shared.clone(), state.settings.clone()));
         }
     }
 }

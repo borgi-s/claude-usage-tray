@@ -20,7 +20,7 @@ pub mod settings_tab;
 pub mod status_banner;
 
 use crate::dashboard::app::DashboardApp;
-use crate::shared::SharedSnapshot;
+use crate::shared::{SharedSettings, SharedSnapshot};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -67,12 +67,12 @@ pub struct DashboardHandle {
 
 /// Spawn the single dashboard thread. Called at most once per process run
 /// (the tray only spawns when no live handle exists). Returns immediately.
-pub fn launch(shared: SharedSnapshot) -> DashboardHandle {
+pub fn launch(shared: SharedSnapshot, settings: SharedSettings) -> DashboardHandle {
     let signals = Arc::new(DashboardSignals::default());
     let signals_for_thread = signals.clone();
 
     let join = std::thread::spawn(move || {
-        let app = DashboardApp::new(shared, signals_for_thread);
+        let app = DashboardApp::new(shared, signals_for_thread, settings);
         let native_options = eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
                 .with_inner_size([1100.0, 720.0])

@@ -6,7 +6,7 @@ use crate::data::parser::Turn;
 use crate::poll::poll_once;
 use crate::render::LastStatus;
 use crate::shared::snapshot::{compute_kpis, AppSnapshot};
-use crate::shared::SharedSnapshot;
+use crate::shared::{SharedSettings, SharedSnapshot};
 use crate::updater::{self, UpdateEvent};
 use chrono::Duration as ChronoDuration;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -60,36 +60,29 @@ unsafe impl Send for SendHwnd {}
 
 /// Spawn the polling thread. The thread runs until `shutdown` becomes true.
 ///
-/// `creds` is moved into the thread. `interval_secs` is the cadence between
-/// successive fetches; the cadence anchors to the START of each fetch (so a
-/// slow fetch shortens the next sleep instead of stretching the schedule).
+/// `creds` is moved into the thread. The poll interval is read from `settings`
+/// every tick, so changes take effect on the next cycle without a restart.
 pub fn spawn(
     creds: Credentials,
-    interval_secs: u64,
     shutdown: Arc<AtomicBool>,
     hwnd: SendHwnd,
     tx: Sender<PollEvent>,
     update_tx: Sender<UpdateEvent>,
     shared: SharedSnapshot,
+    settings: SharedSettings,
 ) -> JoinHandle<()> {
-    let interval = Duration::from_secs(interval_secs);
-    thread::spawn(move || polling_loop(creds, interval, shutdown, hwnd, tx, update_tx, shared))
+    thread::spawn(move || polling_loop(creds, shutdown, hwnd, tx, update_tx, shared, settings))
 }
 
 fn polling_loop(
     creds: Credentials,
-    interval: Duration,
     shutdown: Arc<AtomicBool>,
     hwnd: SendHwnd,
     tx: Sender<PollEvent>,
     update_tx: Sender<UpdateEvent>,
     shared: SharedSnapshot,
+    settings: SharedSettings,
 ) {
-    tracing::info!(
-        interval_secs = interval.as_secs(),
-        "polling thread starting"
-    );
-
     // Stage 6.5: this thread is the SOLE writer of state.json. Load once, keep in memory.
     let mut app_state = crate::state::load();
 
@@ -104,10 +97,16 @@ fn polling_loop(
     let mut last_status = LastStatus::Initial;
     // Publish the Initial status to the shared snapshot right away so the
     // dashboard doesn't show stale/default data while the first poll is running.
+    let initial_interval = settings.read().map(|g| g.poll_interval_secs).unwrap_or(120);
     if let Ok(mut g) = shared.write() {
         g.last_status = last_status.clone();
-        g.interval_secs = interval.as_secs();
+        g.interval_secs = initial_interval;
     }
+
+    tracing::info!(
+        interval_secs = initial_interval,
+        "polling thread starting"
+    );
 
     // Stage 7: best-effort Supabase sync. `None` when unconfigured (no .env) —
     // the agent then behaves exactly as before.
@@ -129,9 +128,15 @@ fn polling_loop(
     while !shutdown.load(Ordering::Relaxed) {
         let fetch_at = Instant::now();
 
+        // Read settings once per tick so interval/tz/weights are always fresh.
+        let settings_snap = settings.read().map(|g| g.clone()).unwrap_or_default();
+        let cp = settings_snap.cal_params();
+        let weights = settings_snap.cost_weights;
+        let interval = Duration::from_secs(settings_snap.poll_interval_secs);
+
         // Stage 5: refresh local cache + derive caps + live util. NOW also
         // returns the turns Arc so we can put it on the shared snapshot.
-        let (calib, turns_arc, log_arc) = compute_calibration_with_turns();
+        let (calib, turns_arc, log_arc) = compute_calibration_with_turns(cp);
 
         // API fetch. Update persistent last_sample / last_status so the shared
         // snapshot always carries the freshest available status even on 429/error.
@@ -157,7 +162,7 @@ fn polling_loop(
 
         // Write the shared snapshot for the dashboard. Build BEFORE sending
         // the mpsc event so an immediate UI-thread reaction can see fresh data.
-        let kpis = compute_kpis(&turns_arc, &calib.caps, &crate::settings::CostWeights::default(), crate::settings::CalParams::default());
+        let kpis = compute_kpis(&turns_arc, &calib.caps, &weights, cp);
         let snapshot = AppSnapshot {
             turns: turns_arc,
             log: log_arc,
@@ -213,7 +218,7 @@ fn polling_loop(
 /// (calibration, turns_arc) so the polling loop can put turns on the shared
 /// snapshot. On any error, returns (default, Arc::new(Vec::new())) so the
 /// poll itself still proceeds.
-fn compute_calibration_with_turns() -> (
+fn compute_calibration_with_turns(cp: crate::settings::CalParams) -> (
     PollCalibration,
     Arc<Vec<Turn>>,
     Arc<Vec<crate::log::calibration::CalibrationSample>>,
@@ -245,10 +250,10 @@ fn compute_calibration_with_turns() -> (
         }
     };
 
-    let caps = derive_caps(&log, &turns_arc, crate::settings::CalParams::default());
-    let hourly_5h = hour_of_day_cap_series(&log, &turns_arc, WindowKind::FiveHour, crate::settings::CalParams::default());
-    let hourly_week = hour_of_day_cap_series(&log, &turns_arc, WindowKind::Weekly, crate::settings::CalParams::default());
-    let live = live_util_now(&turns_arc, &caps);
+    let caps = derive_caps(&log, &turns_arc, cp);
+    let hourly_5h = hour_of_day_cap_series(&log, &turns_arc, WindowKind::FiveHour, cp);
+    let hourly_week = hour_of_day_cap_series(&log, &turns_arc, WindowKind::Weekly, cp);
+    let live = live_util_now(&turns_arc, &caps, cp);
 
     tracing::debug!(
         n_anchors_5h = caps.n_anchors_5h,

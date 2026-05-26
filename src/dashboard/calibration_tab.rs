@@ -36,17 +36,17 @@ const M: f64 = 1_000_000.0; // tokens → millions
 
 const UNCALIBRATED: &str = "(uncalibrated — no ≥95% anchors observed yet)";
 
-pub fn render(ui: &mut Ui, snap: &AppSnapshot, calib: &CalibData) {
+pub fn render(ui: &mut Ui, snap: &AppSnapshot, calib: &CalibData, tz: chrono_tz::Tz) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         ui.add_space(8.0);
         ui.label(RichText::new("Implied 5h cap over time").strong());
-        scatter_over_time(ui, "calib_implied_5h", &calib.implied_5h);
+        scatter_over_time(ui, "calib_implied_5h", &calib.implied_5h, tz);
         ui.add_space(16.0);
         ui.separator();
 
         ui.add_space(8.0);
         ui.label(RichText::new("Implied weekly cap over time").strong());
-        scatter_over_time(ui, "calib_implied_week", &calib.implied_week);
+        scatter_over_time(ui, "calib_implied_week", &calib.implied_week, tz);
         ui.add_space(16.0);
         ui.separator();
 
@@ -65,7 +65,7 @@ pub fn render(ui: &mut Ui, snap: &AppSnapshot, calib: &CalibData) {
 
 /// Scatter of implied cap (M tokens) vs time, points split into 4 hour bands
 /// with a legend, plus a dashed line at the median implied cap.
-fn scatter_over_time(ui: &mut Ui, id: &str, points: &[ImpliedPoint]) {
+fn scatter_over_time(ui: &mut Ui, id: &str, points: &[ImpliedPoint], tz: chrono_tz::Tz) {
     if points.is_empty() {
         ui.label(RichText::new(UNCALIBRATED).color(Color32::from_rgb(220, 200, 120)));
         return;
@@ -98,7 +98,6 @@ fn scatter_over_time(ui: &mut Ui, id: &str, points: &[ImpliedPoint]) {
         .y_axis_label("M tokens")
         .legend(Legend::default())
         .x_axis_formatter({
-            let tz = crate::settings::CalParams::default().tz;
             move |mark: egui_plot::GridMark, _range: &std::ops::RangeInclusive<f64>| {
                 crate::dashboard::axis::format_x_tick(mark.value, tz)
             }

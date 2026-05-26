@@ -9,9 +9,11 @@ use crate::dashboard::filters::FilterState;
 use crate::dashboard::range::Range;
 use crate::dashboard::sessions_table::TableControls;
 use crate::dashboard::DashboardSignals;
+use crate::settings::{CalParams, CostWeights, Settings};
 use crate::shared::snapshot::{compute_kpis, AppSnapshot};
-use crate::shared::SharedSnapshot;
+use crate::shared::{SharedSettings, SharedSnapshot};
 use chrono::{DateTime, Utc};
+use chrono_tz::Tz;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
@@ -27,6 +29,7 @@ enum Tab {
     Charts,
     Sessions,
     Calibration,
+    Settings,
 }
 
 /// Cheap signature for the filtered-view memo. Equal signature ⇒ reuse cache.
@@ -35,6 +38,8 @@ struct ViewSig {
     filter: FilterState,
     n_turns: usize,
     last_ts: Option<DateTime<Utc>>,
+    cp: CalParams,
+    weights: CostWeights,
 }
 
 /// Cheap signature for the calib-data memo. Equal signature ⇒ reuse cache.
@@ -42,6 +47,7 @@ struct ViewSig {
 struct CalibSig {
     n_log: usize,
     n_turns: usize,
+    cp: CalParams,
 }
 
 pub struct DashboardApp {
@@ -58,10 +64,14 @@ pub struct DashboardApp {
     table_controls: TableControls,
     cached_view: Option<(ViewSig, AppSnapshot)>,
     cached_calib: Option<(CalibSig, CalibData)>,
+    settings: SharedSettings,
+    settings_draft: Settings,
+    settings_save_msg: Option<Result<(), String>>,
 }
 
 impl DashboardApp {
-    pub fn new(shared: SharedSnapshot, signals: Arc<DashboardSignals>) -> Self {
+    pub fn new(shared: SharedSnapshot, signals: Arc<DashboardSignals>, settings: SharedSettings) -> Self {
+        let settings_draft = settings.read().map(|g| g.clone()).unwrap_or_default();
         Self {
             shared,
             signals,
@@ -76,25 +86,30 @@ impl DashboardApp {
             table_controls: TableControls::default(),
             cached_view: None,
             cached_calib: None,
+            settings,
+            settings_draft,
+            settings_save_msg: None,
         }
     }
 
     /// Build (or reuse) the filtered AppSnapshot: turns filtered + KPIs
     /// recomputed; caps/hourly/live copied through unchanged. Memoized on the
-    /// filter state and the turn vector's length+last-timestamp.
-    fn filtered_view(&mut self, snap: &AppSnapshot) -> AppSnapshot {
+    /// filter state, the turn vector's length+last-timestamp, and current settings.
+    fn filtered_view(&mut self, snap: &AppSnapshot, cp: CalParams, weights: CostWeights) -> AppSnapshot {
         let sig = ViewSig {
             filter: self.filters.clone(),
             n_turns: snap.turns.len(),
             last_ts: snap.turns.last().map(|t| t.ts),
+            cp,
+            weights,
         };
         if let Some((cached_sig, view)) = &self.cached_view {
             if *cached_sig == sig {
                 return view.clone();
             }
         }
-        let filtered = self.filters.apply(&snap.turns, crate::settings::CalParams::default().tz);
-        let kpis = compute_kpis(&filtered, &snap.caps, &crate::settings::CostWeights::default(), crate::settings::CalParams::default());
+        let filtered = self.filters.apply(&snap.turns, cp.tz);
+        let kpis = compute_kpis(&filtered, &snap.caps, &weights, cp);
         let mut view = snap.clone();
         view.turns = Arc::new(filtered);
         view.kpis = kpis;
@@ -104,11 +119,12 @@ impl DashboardApp {
 
     /// Build (or reuse) the Calibration tab's derived series. Always uses the
     /// UNFILTERED snapshot — calibration is account-wide. Memoized on the log +
-    /// turn lengths (both append-only, so a length change ⇒ new data).
-    fn calib_data(&mut self, snap: &AppSnapshot) -> CalibData {
+    /// turn lengths (both append-only, so a length change ⇒ new data) and cp.
+    fn calib_data(&mut self, snap: &AppSnapshot, cp: CalParams) -> CalibData {
         let sig = CalibSig {
             n_log: snap.log.len(),
             n_turns: snap.turns.len(),
+            cp,
         };
         if let Some((cached_sig, data)) = &self.cached_calib {
             if *cached_sig == sig {
@@ -120,16 +136,16 @@ impl DashboardApp {
                 &snap.log,
                 &snap.turns,
                 WindowKind::FiveHour,
-                crate::settings::CalParams::default(),
+                cp,
             )),
             implied_week: Arc::new(history::implied_cap_series(
                 &snap.log,
                 &snap.turns,
                 WindowKind::Weekly,
-                crate::settings::CalParams::default(),
+                cp,
             )),
-            stats_5h: history::per_hour_stats(&snap.log, &snap.turns, WindowKind::FiveHour, crate::settings::CalParams::default()),
-            stats_week: history::per_hour_stats(&snap.log, &snap.turns, WindowKind::Weekly, crate::settings::CalParams::default()),
+            stats_5h: history::per_hour_stats(&snap.log, &snap.turns, WindowKind::FiveHour, cp),
+            stats_week: history::per_hour_stats(&snap.log, &snap.turns, WindowKind::Weekly, cp),
         };
         self.cached_calib = Some((sig, data.clone()));
         data
@@ -184,7 +200,14 @@ impl eframe::App for DashboardApp {
         // 5. Visible: filter bar + tab strip + tab content.
         let snap = self.shared.read().unwrap().clone();
         let all_turns = snap.turns.clone();
-        let view = self.filtered_view(&snap);
+
+        // Read settings once per frame so charts/filters always use live values.
+        let settings_now = self.settings.read().map(|g| g.clone()).unwrap_or_default();
+        let cp = settings_now.cal_params();
+        let tz: Tz = cp.tz;
+        let weights = settings_now.cost_weights;
+
+        let view = self.filtered_view(&snap, cp, weights);
 
         egui::TopBottomPanel::top("status_banner_panel").show(ctx, |ui| {
             crate::dashboard::status_banner::render(
@@ -210,6 +233,7 @@ impl eframe::App for DashboardApp {
                 ui.selectable_value(&mut self.tab, Tab::Charts, "Charts");
                 ui.selectable_value(&mut self.tab, Tab::Sessions, "Sessions");
                 ui.selectable_value(&mut self.tab, Tab::Calibration, "Calibration");
+                ui.selectable_value(&mut self.tab, Tab::Settings, "Settings");
             });
         });
 
@@ -236,24 +260,32 @@ impl eframe::App for DashboardApp {
                     }
                     ui.separator();
                     ui.add_space(8.0);
-                    crate::dashboard::chart_5h::render(ui, &view, &mut self.range_5h, crate::settings::CalParams::default().tz);
+                    crate::dashboard::chart_5h::render(ui, &view, &mut self.range_5h, tz);
                     ui.add_space(16.0);
                     ui.separator();
                     ui.add_space(8.0);
-                    crate::dashboard::chart_weekly::render(ui, &view, &mut self.range_week, crate::settings::CalParams::default());
+                    crate::dashboard::chart_weekly::render(ui, &view, &mut self.range_week, cp);
                     ui.add_space(16.0);
                     ui.separator();
                     ui.add_space(8.0);
-                    crate::dashboard::chart_daily::render(ui, &view, &mut self.range_daily, &crate::settings::CostWeights::default(), crate::settings::CalParams::default().tz);
+                    crate::dashboard::chart_daily::render(ui, &view, &mut self.range_daily, &weights, tz);
                     ui.add_space(8.0);
                 });
             }
             Tab::Sessions => {
-                crate::dashboard::sessions_table::render(ui, &view.turns, &mut self.table_controls, crate::settings::CalParams::default().tz, &crate::settings::CostWeights::default());
+                crate::dashboard::sessions_table::render(ui, &view.turns, &mut self.table_controls, tz, &weights);
             }
             Tab::Calibration => {
-                let calib = self.calib_data(&snap);
-                crate::dashboard::calibration_tab::render(ui, &snap, &calib);
+                let calib = self.calib_data(&snap, cp);
+                crate::dashboard::calibration_tab::render(ui, &snap, &calib, tz);
+            }
+            Tab::Settings => {
+                crate::dashboard::settings_tab::render(
+                    ui,
+                    &mut self.settings_draft,
+                    &self.settings,
+                    &mut self.settings_save_msg,
+                );
             }
         });
 

@@ -25,8 +25,8 @@ pub fn live_util_at(turns: &[Turn], caps: &DerivedCaps, now: DateTime<Utc>, cp: 
 }
 
 /// Convenience wrapper using `Utc::now()`.
-pub fn live_util_now(turns: &[Turn], caps: &DerivedCaps) -> LiveUtil {
-    live_util_at(turns, caps, Utc::now(), CalParams::default())
+pub fn live_util_now(turns: &[Turn], caps: &DerivedCaps, cp: CalParams) -> LiveUtil {
+    live_util_at(turns, caps, Utc::now(), cp)
 }
 
 #[cfg(test)]

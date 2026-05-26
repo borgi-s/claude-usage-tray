@@ -17,10 +17,11 @@ use std::sync::Arc;
 
 /// Run the tray app. Blocks until the user clicks Quit or the process is
 /// otherwise terminated. Returns `Ok(())` on clean shutdown.
-pub fn run(interval_secs: u64) -> Result<()> {
+pub fn run() -> Result<()> {
     let creds = load_from_default_path()?;
-    use crate::shared::new_shared_snapshot;
+    use crate::shared::{new_shared_settings, new_shared_snapshot};
     let shared = new_shared_snapshot();
+    let settings = new_shared_settings();
     let dashboard: std::sync::Arc<std::sync::Mutex<Option<crate::dashboard::DashboardHandle>>> =
         std::sync::Arc::new(std::sync::Mutex::new(None));
     let hinst = window::current_hinstance()?;
@@ -42,6 +43,7 @@ pub fn run(interval_secs: u64) -> Result<()> {
         last_hourly_5h: None,
         last_hourly_week: None,
         shared: shared.clone(),
+        settings: settings.clone(),
         dashboard: dashboard.clone(),
         update_rx,
         update_tx: update_tx.clone(),
@@ -59,12 +61,12 @@ pub fn run(interval_secs: u64) -> Result<()> {
     let send_hwnd = poller::SendHwnd(hwnd);
     let poll_handle = poller::spawn(
         creds,
-        interval_secs,
         shutdown.clone(),
         send_hwnd,
         tx,
         update_tx,
         shared.clone(),
+        settings.clone(),
     );
 
     // Run the message loop until WM_QUIT.
