@@ -97,11 +97,12 @@ fn scatter_over_time(ui: &mut Ui, id: &str, points: &[ImpliedPoint]) {
         .show_y(true)
         .y_axis_label("M tokens")
         .legend(Legend::default())
-        .x_axis_formatter(
-            |mark: egui_plot::GridMark, _range: &std::ops::RangeInclusive<f64>| {
-                crate::dashboard::axis::format_x_tick(mark.value)
-            },
-        )
+        .x_axis_formatter({
+            let tz = crate::settings::CalParams::default().tz;
+            move |mark: egui_plot::GridMark, _range: &std::ops::RangeInclusive<f64>| {
+                crate::dashboard::axis::format_x_tick(mark.value, tz)
+            }
+        })
         .show(ui, |plot_ui| {
             for (color, name, pts) in &bands {
                 if pts.is_empty() {

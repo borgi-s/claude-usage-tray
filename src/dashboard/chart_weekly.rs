@@ -15,7 +15,7 @@ const COLOR_LINE: Color32 = Color32::from_rgb(79, 140, 255);
 const COLOR_BAND: Color32 = Color32::from_rgba_premultiplied(19, 19, 22, 40);
 const COLOR_CAP: Color32 = Color32::from_rgb(120, 120, 120);
 
-pub fn render(ui: &mut Ui, snap: &AppSnapshot, range: &mut Range) {
+pub fn render(ui: &mut Ui, snap: &AppSnapshot, range: &mut Range, cp: crate::settings::CalParams) {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("Weekly cumulative share").strong());
         ui.separator();
@@ -35,7 +35,7 @@ pub fn render(ui: &mut Ui, snap: &AppSnapshot, range: &mut Range) {
     }
 
     let cap_week = snap.caps.cap_week;
-    let series = cumulative_share_series_weekly(&snap.turns, cap_week, crate::settings::CalParams::default());
+    let series = cumulative_share_series_weekly(&snap.turns, cap_week, cp);
 
     let x = |t: chrono::DateTime<Utc>| t.timestamp() as f64;
 
@@ -67,12 +67,12 @@ pub fn render(ui: &mut Ui, snap: &AppSnapshot, range: &mut Range) {
         .show_y(true)
         .y_axis_label(y_label)
         .x_axis_formatter(
-            |mark: egui_plot::GridMark, _range: &std::ops::RangeInclusive<f64>| {
-                crate::dashboard::axis::format_x_tick(mark.value)
+            move |mark: egui_plot::GridMark, _range: &std::ops::RangeInclusive<f64>| {
+                crate::dashboard::axis::format_x_tick(mark.value, cp.tz)
             },
         )
         .show(ui, |plot_ui| {
-            for (s, e, _) in calendar_bands(x_start, x_end) {
+            for (s, e, _) in calendar_bands(x_start, x_end, cp.tz) {
                 plot_ui.polygon(
                     Polygon::new(PlotPoints::from(vec![
                         [x(s), 0.0],

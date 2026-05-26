@@ -4,13 +4,12 @@ use crate::dashboard::range::{clamp_x_range, Range};
 use crate::dashboard::series::daily_aggregates;
 use crate::shared::snapshot::AppSnapshot;
 use chrono::{NaiveTime, TimeZone, Utc};
-use chrono_tz::Tz;
 use egui::{Color32, Ui};
 use egui_plot::{Bar, BarChart, Plot};
 
 const COLOR_BAR: Color32 = Color32::from_rgb(79, 140, 255);
 
-pub fn render(ui: &mut Ui, snap: &AppSnapshot, range: &mut Range) {
+pub fn render(ui: &mut Ui, snap: &AppSnapshot, range: &mut Range, w: &crate::settings::CostWeights, tz: chrono_tz::Tz) {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("Daily burn").strong());
         ui.separator();
@@ -29,8 +28,7 @@ pub fn render(ui: &mut Ui, snap: &AppSnapshot, range: &mut Range) {
         }
     }
 
-    let tz: Tz = crate::config::LOCAL_TZ.parse().expect("LOCAL_TZ");
-    let aggregates = daily_aggregates(&snap.turns, &crate::settings::CostWeights::default());
+    let aggregates = daily_aggregates(&snap.turns, w, tz);
 
     let bars: Vec<Bar> = aggregates
         .iter()
@@ -52,8 +50,8 @@ pub fn render(ui: &mut Ui, snap: &AppSnapshot, range: &mut Range) {
         .show_y(true)
         .y_axis_label("cost-weighted")
         .x_axis_formatter(
-            |mark: egui_plot::GridMark, _range: &std::ops::RangeInclusive<f64>| {
-                crate::dashboard::axis::format_x_tick(mark.value)
+            move |mark: egui_plot::GridMark, _range: &std::ops::RangeInclusive<f64>| {
+                crate::dashboard::axis::format_x_tick(mark.value, tz)
             },
         )
         .show(ui, |plot_ui| {

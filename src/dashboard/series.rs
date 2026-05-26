@@ -5,7 +5,6 @@ use crate::config::FIVE_HOUR_WINDOW_HOURS;
 use crate::data::parser::Turn;
 use crate::settings::CalParams;
 use chrono::{DateTime, Duration, NaiveDate, Utc};
-use chrono_tz::Tz;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -91,12 +90,8 @@ pub fn cumulative_share_series_weekly(turns: &[Turn], cap: Option<f64>, cp: CalP
 }
 
 /// Sum cost-weighted tokens per local-date, returned in ascending date order.
-pub fn daily_aggregates(turns: &[Turn], w: &crate::settings::CostWeights) -> Vec<(NaiveDate, f64)> {
+pub fn daily_aggregates(turns: &[Turn], w: &crate::settings::CostWeights, tz: chrono_tz::Tz) -> Vec<(NaiveDate, f64)> {
     use crate::shared::snapshot::cost_weighted;
-
-    let tz: Tz = crate::config::LOCAL_TZ
-        .parse()
-        .expect("LOCAL_TZ must be valid IANA name");
     let mut map: BTreeMap<NaiveDate, f64> = BTreeMap::new();
     for t in turns {
         let local_date = t.ts.with_timezone(&tz).date_naive();

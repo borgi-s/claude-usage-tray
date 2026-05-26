@@ -6,7 +6,6 @@ use crate::dashboard::filters::short_project;
 use crate::dashboard::kpi::format_si;
 use crate::data::parser::Turn;
 use crate::data::sessions::{hide_degenerate, session_summaries, sort_sessions, SortKey};
-use chrono_tz::Tz;
 use egui::Ui;
 use egui_extras::{Column, TableBuilder};
 
@@ -27,7 +26,7 @@ impl Default for TableControls {
     }
 }
 
-pub fn render(ui: &mut Ui, turns: &[Turn], controls: &mut TableControls) {
+pub fn render(ui: &mut Ui, turns: &[Turn], controls: &mut TableControls, tz: chrono_tz::Tz, w: &crate::settings::CostWeights) {
     // Controls row.
     ui.horizontal(|ui| {
         ui.label("Sort:");
@@ -45,7 +44,7 @@ pub fn render(ui: &mut Ui, turns: &[Turn], controls: &mut TableControls) {
         ui.add(egui::DragValue::new(&mut controls.min_duration_s).range(0.0..=86_400.0));
     });
 
-    let mut summaries = session_summaries(turns, &crate::settings::CostWeights::default());
+    let mut summaries = session_summaries(turns, w);
     sort_sessions(&mut summaries, controls.sort);
     let (summaries, hidden) =
         hide_degenerate(summaries, controls.min_turns, controls.min_duration_s);
@@ -60,8 +59,6 @@ pub fn render(ui: &mut Ui, turns: &[Turn], controls: &mut TableControls) {
         .color(egui::Color32::GRAY),
     );
     ui.add_space(4.0);
-
-    let tz: Tz = crate::config::LOCAL_TZ.parse().expect("LOCAL_TZ");
 
     TableBuilder::new(ui)
         .striped(true)

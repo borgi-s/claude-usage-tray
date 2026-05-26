@@ -51,8 +51,7 @@ impl Default for FilterState {
 
 impl FilterState {
     /// Returns the subset of `turns` matching every active filter dimension.
-    pub fn apply(&self, turns: &[Turn]) -> Vec<Turn> {
-        let tz: Tz = crate::config::LOCAL_TZ.parse().expect("LOCAL_TZ");
+    pub fn apply(&self, turns: &[Turn], tz: Tz) -> Vec<Turn> {
         turns
             .iter()
             .filter(|t| {
@@ -95,6 +94,10 @@ mod tests {
     use super::*;
     use chrono::{DateTime, NaiveDate, TimeZone, Utc};
     use std::path::PathBuf;
+
+    fn tz() -> chrono_tz::Tz {
+        crate::settings::CalParams::default().tz
+    }
 
     fn turn_at(session: &str, ts: DateTime<Utc>, project: &str, model: &str) -> Turn {
         Turn {
@@ -161,7 +164,7 @@ mod tests {
     fn apply_empty_filter_keeps_all() {
         let turns = sample();
         let f = FilterState::default();
-        assert_eq!(f.apply(&turns).len(), 3);
+        assert_eq!(f.apply(&turns, tz()).len(), 3);
     }
 
     #[test]
@@ -175,7 +178,7 @@ mod tests {
             ..Default::default()
         };
         // keeps 22nd and 24th, drops 20th.
-        assert_eq!(f.apply(&turns).len(), 2);
+        assert_eq!(f.apply(&turns, tz()).len(), 2);
     }
 
     #[test]
@@ -185,7 +188,7 @@ mod tests {
             projects: ["/p/alpha".to_string()].into(),
             ..Default::default()
         };
-        let kept = f.apply(&turns);
+        let kept = f.apply(&turns, tz());
         assert_eq!(kept.len(), 2);
         assert!(kept.iter().all(|t| t.project_cwd == "/p/alpha"));
     }
@@ -197,7 +200,7 @@ mod tests {
             models: ["claude-sonnet-4-5".to_string()].into(),
             ..Default::default()
         };
-        assert_eq!(f.apply(&turns).len(), 2);
+        assert_eq!(f.apply(&turns, tz()).len(), 2);
     }
 
     #[test]

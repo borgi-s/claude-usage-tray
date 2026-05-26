@@ -93,7 +93,7 @@ impl DashboardApp {
                 return view.clone();
             }
         }
-        let filtered = self.filters.apply(&snap.turns);
+        let filtered = self.filters.apply(&snap.turns, crate::settings::CalParams::default().tz);
         let kpis = compute_kpis(&filtered, &snap.caps, &crate::settings::CostWeights::default(), crate::settings::CalParams::default());
         let mut view = snap.clone();
         view.turns = Arc::new(filtered);
@@ -236,20 +236,20 @@ impl eframe::App for DashboardApp {
                     }
                     ui.separator();
                     ui.add_space(8.0);
-                    crate::dashboard::chart_5h::render(ui, &view, &mut self.range_5h);
+                    crate::dashboard::chart_5h::render(ui, &view, &mut self.range_5h, crate::settings::CalParams::default().tz);
                     ui.add_space(16.0);
                     ui.separator();
                     ui.add_space(8.0);
-                    crate::dashboard::chart_weekly::render(ui, &view, &mut self.range_week);
+                    crate::dashboard::chart_weekly::render(ui, &view, &mut self.range_week, crate::settings::CalParams::default());
                     ui.add_space(16.0);
                     ui.separator();
                     ui.add_space(8.0);
-                    crate::dashboard::chart_daily::render(ui, &view, &mut self.range_daily);
+                    crate::dashboard::chart_daily::render(ui, &view, &mut self.range_daily, &crate::settings::CostWeights::default(), crate::settings::CalParams::default().tz);
                     ui.add_space(8.0);
                 });
             }
             Tab::Sessions => {
-                crate::dashboard::sessions_table::render(ui, &view.turns, &mut self.table_controls);
+                crate::dashboard::sessions_table::render(ui, &view.turns, &mut self.table_controls, crate::settings::CalParams::default().tz, &crate::settings::CostWeights::default());
             }
             Tab::Calibration => {
                 let calib = self.calib_data(&snap);

@@ -1,6 +1,5 @@
 //! Calendar shading bands — weekends (Sat+Sun in local TZ) and nights (22:00-06:00 local).
 
-use crate::config;
 use chrono::{DateTime, Datelike, Duration, TimeZone, Utc, Weekday};
 use chrono_tz::Tz;
 
@@ -15,13 +14,11 @@ pub enum BandKind {
 pub fn calendar_bands(
     range_start: DateTime<Utc>,
     range_end: DateTime<Utc>,
+    tz: Tz,
 ) -> Vec<(DateTime<Utc>, DateTime<Utc>, BandKind)> {
     if range_end <= range_start {
         return Vec::new();
     }
-    let tz: Tz = config::LOCAL_TZ
-        .parse()
-        .expect("LOCAL_TZ must be valid IANA name");
     let mut out = Vec::new();
 
     // Weekend: every Saturday 00:00 local → Monday 00:00 local.

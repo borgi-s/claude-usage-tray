@@ -17,7 +17,7 @@ const COLOR_BAND: Color32 = Color32::from_rgba_premultiplied(19, 19, 22, 40);
 const COLOR_CAP: Color32 = Color32::from_rgb(120, 120, 120);
 const COLOR_HOURLY: Color32 = Color32::from_rgba_premultiplied(180, 180, 180, 80);
 
-pub fn render(ui: &mut Ui, snap: &AppSnapshot, range: &mut Range) {
+pub fn render(ui: &mut Ui, snap: &AppSnapshot, range: &mut Range, tz: chrono_tz::Tz) {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("5h cumulative share").strong());
         ui.separator();
@@ -70,13 +70,13 @@ pub fn render(ui: &mut Ui, snap: &AppSnapshot, range: &mut Range) {
         .show_y(true)
         .y_axis_label(y_label)
         .x_axis_formatter(
-            |mark: egui_plot::GridMark, _range: &std::ops::RangeInclusive<f64>| {
-                crate::dashboard::axis::format_x_tick(mark.value)
+            move |mark: egui_plot::GridMark, _range: &std::ops::RangeInclusive<f64>| {
+                crate::dashboard::axis::format_x_tick(mark.value, tz)
             },
         )
         .show(ui, |plot_ui| {
             // Calendar bands.
-            for (s, e, _kind) in calendar_bands(x_start, x_end) {
+            for (s, e, _kind) in calendar_bands(x_start, x_end, tz) {
                 plot_ui.polygon(
                     Polygon::new(PlotPoints::from(vec![
                         [x(s), 0.0],
@@ -91,7 +91,7 @@ pub fn render(ui: &mut Ui, snap: &AppSnapshot, range: &mut Range) {
 
             // Hour-of-day overlay (if cap_5h available).
             if let Some(cap) = cap_5h {
-                let overlay = hourly_overlay_points(x_start, x_end, snap.hourly_5h, cap);
+                let overlay = hourly_overlay_points(x_start, x_end, snap.hourly_5h, cap, tz);
                 plot_ui.line(
                     Line::new(PlotPoints::from(overlay))
                         .color(COLOR_HOURLY)
@@ -130,10 +130,9 @@ fn hourly_overlay_points(
     x_end: DateTime<Utc>,
     hourly: [f64; 24],
     cap: f64,
+    tz: chrono_tz::Tz,
 ) -> Vec<[f64; 2]> {
     use chrono::Timelike;
-    use chrono_tz::Tz;
-    let tz: Tz = crate::config::LOCAL_TZ.parse().expect("LOCAL_TZ");
     let mut out = Vec::new();
     let mut cur = x_start;
     while cur < x_end {
