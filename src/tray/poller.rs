@@ -157,7 +157,7 @@ fn polling_loop(
 
         // Write the shared snapshot for the dashboard. Build BEFORE sending
         // the mpsc event so an immediate UI-thread reaction can see fresh data.
-        let kpis = compute_kpis(&turns_arc, &calib.caps, &crate::settings::CostWeights::default());
+        let kpis = compute_kpis(&turns_arc, &calib.caps, &crate::settings::CostWeights::default(), crate::settings::CalParams::default());
         let snapshot = AppSnapshot {
             turns: turns_arc,
             log: log_arc,
@@ -245,9 +245,9 @@ fn compute_calibration_with_turns() -> (
         }
     };
 
-    let caps = derive_caps(&log, &turns_arc);
-    let hourly_5h = hour_of_day_cap_series(&log, &turns_arc, WindowKind::FiveHour);
-    let hourly_week = hour_of_day_cap_series(&log, &turns_arc, WindowKind::Weekly);
+    let caps = derive_caps(&log, &turns_arc, crate::settings::CalParams::default());
+    let hourly_5h = hour_of_day_cap_series(&log, &turns_arc, WindowKind::FiveHour, crate::settings::CalParams::default());
+    let hourly_week = hour_of_day_cap_series(&log, &turns_arc, WindowKind::Weekly, crate::settings::CalParams::default());
     let live = live_util_now(&turns_arc, &caps);
 
     tracing::debug!(

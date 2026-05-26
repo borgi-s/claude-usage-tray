@@ -7,8 +7,8 @@ use crate::calibration::WindowKind;
 use crate::config;
 use crate::data::parser::Turn;
 use crate::log::calibration::CalibrationSample;
+use crate::settings::CalParams;
 use chrono::{DateTime, Timelike, Utc};
-use chrono_tz::Tz;
 
 /// (sample ts, implied cap in raw output tokens) for every sample that
 /// qualifies as an anchor for `kind`: util present, within
@@ -17,6 +17,7 @@ fn qualifying_implied(
     log: &[CalibrationSample],
     turns: &[Turn],
     kind: WindowKind,
+    cp: CalParams,
 ) -> Vec<(DateTime<Utc>, f64)> {
     let mut out = Vec::new();
     for s in log {
@@ -30,7 +31,7 @@ fn qualifying_implied(
         }
         let burn = match kind {
             WindowKind::FiveHour => five_hour_burn_at(turns, s.ts),
-            WindowKind::Weekly => weekly_burn_at(turns, s.ts),
+            WindowKind::Weekly => weekly_burn_at(turns, s.ts, cp),
         };
         if burn == 0 || util <= 0.0 {
             continue;
@@ -53,11 +54,10 @@ pub fn implied_cap_series(
     log: &[CalibrationSample],
     turns: &[Turn],
     kind: WindowKind,
+    cp: CalParams,
 ) -> Vec<ImpliedPoint> {
-    let tz: Tz = config::LOCAL_TZ
-        .parse()
-        .expect("LOCAL_TZ must be a valid IANA name");
-    let mut out: Vec<ImpliedPoint> = qualifying_implied(log, turns, kind)
+    let tz = cp.tz;
+    let mut out: Vec<ImpliedPoint> = qualifying_implied(log, turns, kind, cp)
         .into_iter()
         .map(|(ts, cap)| ImpliedPoint {
             ts,
@@ -83,12 +83,11 @@ pub fn per_hour_stats(
     log: &[CalibrationSample],
     turns: &[Turn],
     kind: WindowKind,
+    cp: CalParams,
 ) -> [HourStat; 24] {
-    let tz: Tz = config::LOCAL_TZ
-        .parse()
-        .expect("LOCAL_TZ must be a valid IANA name");
+    let tz = cp.tz;
     let mut buckets: [Vec<f64>; 24] = Default::default();
-    for (ts, cap) in qualifying_implied(log, turns, kind) {
+    for (ts, cap) in qualifying_implied(log, turns, kind, cp) {
         let h = ts.with_timezone(&tz).hour() as usize;
         buckets[h].push(cap);
     }
@@ -143,6 +142,7 @@ mod tests {
     use crate::calibration::WindowKind;
     use crate::data::parser::Turn;
     use crate::log::calibration::CalibrationSample;
+    use crate::settings::CalParams;
     use chrono::{DateTime, TimeZone, Utc};
     use std::path::PathBuf;
 
@@ -191,7 +191,7 @@ mod tests {
             sample(utc(2026, 5, 24, 15, 0), 0.5), // util too low => excluded
             sample(utc(2026, 5, 24, 16, 0), 1.2), // util too high => excluded
         ];
-        let pts = implied_cap_series(&log, &turns, WindowKind::FiveHour);
+        let pts = implied_cap_series(&log, &turns, WindowKind::FiveHour, CalParams::default());
         assert_eq!(pts.len(), 1);
         assert!((pts[0].cap - 100.0).abs() < 1e-9);
     }
@@ -200,7 +200,7 @@ mod tests {
     fn implied_drops_zero_burn_windows() {
         // Util qualifies but there are no turns => burn 0 => dropped.
         let log = vec![sample(utc(2026, 5, 24, 14, 0), 1.0)];
-        let pts = implied_cap_series(&log, &[], WindowKind::FiveHour);
+        let pts = implied_cap_series(&log, &[], WindowKind::FiveHour, CalParams::default());
         assert!(pts.is_empty());
     }
 
@@ -209,13 +209,13 @@ mod tests {
         // 14:00 UTC = 16:00 local (Europe/Copenhagen, CEST).
         let turns = vec![turn(utc(2026, 5, 24, 13, 0), 100)];
         let log = vec![sample(utc(2026, 5, 24, 14, 0), 1.0)];
-        let pts = implied_cap_series(&log, &turns, WindowKind::FiveHour);
+        let pts = implied_cap_series(&log, &turns, WindowKind::FiveHour, CalParams::default());
         assert_eq!(pts[0].local_hour, 16);
     }
 
     #[test]
     fn implied_empty_log_is_empty() {
-        assert!(implied_cap_series(&[], &[], WindowKind::FiveHour).is_empty());
+        assert!(implied_cap_series(&[], &[], WindowKind::FiveHour, CalParams::default()).is_empty());
     }
 
     #[test]
@@ -252,7 +252,7 @@ mod tests {
             sample(utc(2026, 5, 19, 14, 0), 1.0),
             sample(utc(2026, 5, 20, 14, 0), 1.0),
         ];
-        let stats = per_hour_stats(&log, &turns, WindowKind::FiveHour);
+        let stats = per_hour_stats(&log, &turns, WindowKind::FiveHour, CalParams::default());
         let s = &stats[16];
         assert_eq!(s.n, 3);
         assert_eq!(s.median, Some(200.0));
@@ -262,7 +262,7 @@ mod tests {
 
     #[test]
     fn per_hour_stats_empty_bins_are_default() {
-        let stats = per_hour_stats(&[], &[], WindowKind::FiveHour);
+        let stats = per_hour_stats(&[], &[], WindowKind::FiveHour, CalParams::default());
         for s in &stats {
             assert!(s.median.is_none());
             assert!(s.p25.is_none());
@@ -281,8 +281,8 @@ mod tests {
             sample(utc(2026, 5, 18, 14, 0), 1.0),
             sample(utc(2026, 5, 19, 14, 0), 1.0),
         ];
-        let stats = per_hour_stats(&log, &turns, WindowKind::FiveHour);
-        let raw = crate::calibration::hourly::per_hour_medians(&log, &turns, WindowKind::FiveHour);
+        let stats = per_hour_stats(&log, &turns, WindowKind::FiveHour, CalParams::default());
+        let raw = crate::calibration::hourly::per_hour_medians(&log, &turns, WindowKind::FiveHour, CalParams::default());
         assert_eq!(stats[16].median, raw[16]);
     }
 }

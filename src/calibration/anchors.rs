@@ -13,28 +13,26 @@ pub struct DerivedCaps {
 }
 
 use crate::config;
+use crate::settings::CalParams;
 use chrono::{Datelike, Duration, TimeZone};
-use chrono_tz::Tz;
 
 /// Returns the most-recent weekly-reset moment (Sun 07:00 local) at or before
 /// `anchor_ts`, expressed in UTC.
-pub fn last_weekly_reset(anchor_ts: DateTime<Utc>) -> DateTime<Utc> {
-    let tz: Tz = config::LOCAL_TZ
-        .parse()
-        .expect("LOCAL_TZ must be a valid IANA name");
+pub fn last_weekly_reset(anchor_ts: DateTime<Utc>, cp: CalParams) -> DateTime<Utc> {
+    let tz = cp.tz;
     let local = anchor_ts.with_timezone(&tz);
 
-    // days_back: how many days from `local`'s weekday back to Sunday (0..=6).
-    let target = config::WEEKLY_RESET_WEEKDAY;
+    // days_back: how many days from `local`'s weekday back to the target weekday (0..=6).
+    let target = cp.reset_weekday;
     let days_back = ((local.weekday().num_days_from_monday() as i64)
         - (target.num_days_from_monday() as i64))
         .rem_euclid(7);
 
-    // Sun of the same week at 07:00 local.
+    // Reset weekday of the same week at reset_hour local.
     let candidate_date = local.date_naive() - Duration::days(days_back);
     let candidate_naive = candidate_date
-        .and_hms_opt(config::WEEKLY_RESET_HOUR_LOCAL, 0, 0)
-        .expect("07:00 is always valid");
+        .and_hms_opt(cp.reset_hour, 0, 0)
+        .expect("reset hour 0..=23 is valid");
     let candidate_local = tz
         .from_local_datetime(&candidate_naive)
         .single()
@@ -86,8 +84,8 @@ pub fn five_hour_burn_at(turns: &[Turn], anchor_ts: DateTime<Utc>) -> u64 {
 
 /// Sum `output_tokens` since the most-recent Sun 07:00-local reset.
 /// `turns` may be in any order; we filter, not iterate-in-order.
-pub fn weekly_burn_at(turns: &[Turn], anchor_ts: DateTime<Utc>) -> u64 {
-    let win_start = last_weekly_reset(anchor_ts);
+pub fn weekly_burn_at(turns: &[Turn], anchor_ts: DateTime<Utc>, cp: CalParams) -> u64 {
+    let win_start = last_weekly_reset(anchor_ts, cp);
     turns
         .iter()
         .filter(|t| t.ts >= win_start && t.ts <= anchor_ts)
@@ -132,13 +130,13 @@ pub fn peak_five_hour_burn(turns: &[Turn]) -> u64 {
 /// O(n) instead of O(n^2). Accumulates output within each fixed weekly window
 /// (Sun 07:00-local resets) and resets at each boundary. Requires `turns`
 /// sorted ascending by `ts`.
-pub fn peak_weekly_burn(turns: &[Turn]) -> u64 {
+pub fn peak_weekly_burn(turns: &[Turn], cp: CalParams) -> u64 {
     let mut cur_reset: Option<DateTime<Utc>> = None;
     let mut burn: u64 = 0;
     let mut peak: u64 = 0;
 
     for t in turns.iter() {
-        let reset = last_weekly_reset(t.ts);
+        let reset = last_weekly_reset(t.ts, cp);
         if cur_reset != Some(reset) {
             cur_reset = Some(reset);
             burn = 0;
@@ -163,6 +161,7 @@ pub fn global_cap_from_anchors(
     log: &[CalibrationSample],
     turns: &[Turn],
     kind: WindowKind,
+    cp: CalParams,
 ) -> (Option<f64>, usize) {
     let mut implied: Vec<f64> = Vec::new();
     for s in log {
@@ -176,7 +175,7 @@ pub fn global_cap_from_anchors(
         }
         let burn = match kind {
             WindowKind::FiveHour => five_hour_burn_at(turns, s.ts),
-            WindowKind::Weekly => weekly_burn_at(turns, s.ts),
+            WindowKind::Weekly => weekly_burn_at(turns, s.ts, cp),
         };
         if burn == 0 || util <= 0.0 {
             continue;
@@ -197,9 +196,9 @@ pub fn global_cap_from_anchors(
 }
 
 /// Compute both 5h and weekly caps in one call.
-pub fn derive_caps(log: &[CalibrationSample], turns: &[Turn]) -> DerivedCaps {
-    let (cap_5h, n5) = global_cap_from_anchors(log, turns, WindowKind::FiveHour);
-    let (cap_week, n7) = global_cap_from_anchors(log, turns, WindowKind::Weekly);
+pub fn derive_caps(log: &[CalibrationSample], turns: &[Turn], cp: CalParams) -> DerivedCaps {
+    let (cap_5h, n5) = global_cap_from_anchors(log, turns, WindowKind::FiveHour, cp);
+    let (cap_week, n7) = global_cap_from_anchors(log, turns, WindowKind::Weekly, cp);
     DerivedCaps {
         cap_5h,
         cap_week,
@@ -212,6 +211,7 @@ pub fn derive_caps(log: &[CalibrationSample], turns: &[Turn]) -> DerivedCaps {
 mod tests {
     use super::*;
     use crate::data::parser::Turn;
+    use crate::settings::CalParams;
     use chrono::TimeZone;
     use std::path::PathBuf;
 
@@ -280,7 +280,7 @@ mod tests {
     fn last_weekly_reset_when_anchor_is_monday_picks_prior_sunday_0700() {
         // Mon 2026-05-25 14:30 UTC = Mon 16:30 local (CEST = UTC+2 in May).
         let anchor = utc(2026, 5, 25, 14, 30);
-        let reset = last_weekly_reset(anchor);
+        let reset = last_weekly_reset(anchor, CalParams::default());
         // Prior Sun 2026-05-24 07:00 local CEST = 2026-05-24 05:00 UTC.
         assert_eq!(reset, utc(2026, 5, 24, 5, 0));
     }
@@ -288,14 +288,14 @@ mod tests {
     #[test]
     fn last_weekly_reset_when_anchor_is_sunday_after_0700_picks_today() {
         let anchor = utc(2026, 5, 24, 8, 0); // Sun 10:00 local CEST
-        let reset = last_weekly_reset(anchor);
+        let reset = last_weekly_reset(anchor, CalParams::default());
         assert_eq!(reset, utc(2026, 5, 24, 5, 0));
     }
 
     #[test]
     fn last_weekly_reset_when_anchor_is_sunday_before_0700_picks_prior_sunday() {
         let anchor = utc(2026, 5, 24, 4, 0); // Sun 06:00 local CEST
-        let reset = last_weekly_reset(anchor);
+        let reset = last_weekly_reset(anchor, CalParams::default());
         // Prior Sun: 2026-05-17 05:00 UTC.
         assert_eq!(reset, utc(2026, 5, 17, 5, 0));
     }
@@ -303,9 +303,23 @@ mod tests {
     #[test]
     fn last_weekly_reset_handles_saturday() {
         let anchor = utc(2026, 5, 23, 10, 0); // Sat 12:00 local
-        let reset = last_weekly_reset(anchor);
+        let reset = last_weekly_reset(anchor, CalParams::default());
         // Prior Sun = 2026-05-17 05:00 UTC.
         assert_eq!(reset, utc(2026, 5, 17, 5, 0));
+    }
+
+    #[test]
+    fn last_weekly_reset_honors_non_default_weekday() {
+        use chrono::Weekday;
+        let cp = CalParams {
+            tz: chrono_tz::Europe::Copenhagen,
+            reset_weekday: Weekday::Mon,
+            reset_hour: 7,
+        };
+        // Anchor Wed 2026-05-27 12:00 UTC; Monday-07:00-local reset → prior Mon
+        // 2026-05-25 07:00 CEST = 05:00 UTC.
+        let anchor = utc(2026, 5, 27, 12, 0);
+        assert_eq!(last_weekly_reset(anchor, cp), utc(2026, 5, 25, 5, 0));
     }
 
     #[test]
@@ -317,7 +331,7 @@ mod tests {
             turn(utc(2026, 5, 23, 8, 0), 300),
         ];
         let anchor = utc(2026, 5, 23, 12, 0); // Sat — last reset was Sun 17 05:00 UTC
-        assert_eq!(weekly_burn_at(&turns, anchor), 600);
+        assert_eq!(weekly_burn_at(&turns, anchor, CalParams::default()), 600);
     }
 
     #[test]
@@ -328,7 +342,7 @@ mod tests {
         ];
         let anchor = utc(2026, 5, 24, 8, 0);
         // Only the 100 token row falls within the new week.
-        assert_eq!(weekly_burn_at(&turns, anchor), 100);
+        assert_eq!(weekly_burn_at(&turns, anchor, CalParams::default()), 100);
     }
 
     #[test]
@@ -360,16 +374,16 @@ mod tests {
         ];
         let brute = turns
             .iter()
-            .map(|t| weekly_burn_at(&turns, t.ts))
+            .map(|t| weekly_burn_at(&turns, t.ts, CalParams::default()))
             .max()
             .unwrap_or(0);
-        assert_eq!(peak_weekly_burn(&turns), brute);
+        assert_eq!(peak_weekly_burn(&turns, CalParams::default()), brute);
     }
 
     #[test]
     fn peak_burns_empty_is_zero() {
         assert_eq!(peak_five_hour_burn(&[]), 0);
-        assert_eq!(peak_weekly_burn(&[]), 0);
+        assert_eq!(peak_weekly_burn(&[], CalParams::default()), 0);
     }
 
     use crate::calibration::WindowKind;
@@ -392,7 +406,7 @@ mod tests {
     fn global_cap_zero_anchors_returns_none() {
         let log = vec![sample(utc(2026, 5, 24, 10, 0), 0.5, 0.4)];
         let turns = vec![turn(utc(2026, 5, 24, 9, 0), 100)];
-        let (cap, n) = global_cap_from_anchors(&log, &turns, WindowKind::FiveHour);
+        let (cap, n) = global_cap_from_anchors(&log, &turns, WindowKind::FiveHour, CalParams::default());
         assert!(cap.is_none());
         assert_eq!(n, 0);
     }
@@ -405,7 +419,7 @@ mod tests {
             turn(utc(2026, 5, 24, 8, 0), 400),
             turn(utc(2026, 5, 24, 9, 0), 600),
         ];
-        let (cap, n) = global_cap_from_anchors(&log, &turns, WindowKind::FiveHour);
+        let (cap, n) = global_cap_from_anchors(&log, &turns, WindowKind::FiveHour, CalParams::default());
         assert_eq!(cap, Some(1000.0));
         assert_eq!(n, 1);
     }
@@ -426,7 +440,7 @@ mod tests {
             // Anchor 2's window ends, anchor 3 starts a new window.
             turn(utc(2026, 5, 24, 21, 30), 300), // anchor 3: burn 300, util 1 → cap 300
         ];
-        let (cap, n) = global_cap_from_anchors(&log, &turns, WindowKind::FiveHour);
+        let (cap, n) = global_cap_from_anchors(&log, &turns, WindowKind::FiveHour, CalParams::default());
         assert_eq!(cap, Some(200.0));
         assert_eq!(n, 3);
     }

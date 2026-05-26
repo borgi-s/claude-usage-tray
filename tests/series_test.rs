@@ -3,6 +3,7 @@ use claude_usage_tray::dashboard::series::{
     cumulative_share_series_5h, cumulative_share_series_weekly,
 };
 use claude_usage_tray::data::parser::Turn;
+use claude_usage_tray::settings::CalParams;
 use std::path::PathBuf;
 
 fn utc(y: i32, m: u32, d: u32, h: u32, mi: u32) -> chrono::DateTime<chrono::Utc> {
@@ -82,7 +83,7 @@ fn cumulative_share_weekly_resets_at_sunday_0700_local() {
         turn(utc(2026, 5, 23, 12, 0), 200), // still same week
         turn(utc(2026, 5, 24, 6, 0), 50),  // after next reset → fresh week → window_idx incremented
     ];
-    let series = cumulative_share_series_weekly(&turns, Some(1000.0));
+    let series = cumulative_share_series_weekly(&turns, Some(1000.0), CalParams::default());
     assert_eq!(series.len(), 4);
 
     // The first turn (pre-reset) starts the series in its own "prior" week.

@@ -35,7 +35,7 @@ pub fn render(ui: &mut Ui, snap: &AppSnapshot, range: &mut Range) {
     }
 
     let cap_week = snap.caps.cap_week;
-    let series = cumulative_share_series_weekly(&snap.turns, cap_week);
+    let series = cumulative_share_series_weekly(&snap.turns, cap_week, crate::settings::CalParams::default());
 
     let x = |t: chrono::DateTime<Utc>| t.timestamp() as f64;
 

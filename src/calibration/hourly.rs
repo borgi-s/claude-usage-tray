@@ -5,8 +5,8 @@ use crate::calibration::WindowKind;
 use crate::config;
 use crate::data::parser::Turn;
 use crate::log::calibration::CalibrationSample;
+use crate::settings::CalParams;
 use chrono::Timelike;
-use chrono_tz::Tz;
 
 /// One implied cap per local hour-of-day, computed as median across anchors
 /// whose timestamp falls in that bin. Bins with no anchors are `None`.
@@ -14,10 +14,9 @@ pub fn per_hour_medians(
     log: &[CalibrationSample],
     turns: &[Turn],
     kind: WindowKind,
+    cp: CalParams,
 ) -> [Option<f64>; 24] {
-    let tz: Tz = config::LOCAL_TZ
-        .parse()
-        .expect("LOCAL_TZ must be a valid IANA name");
+    let tz = cp.tz;
     let mut buckets: [Vec<f64>; 24] = Default::default();
 
     for s in log {
@@ -31,7 +30,7 @@ pub fn per_hour_medians(
         }
         let burn = match kind {
             WindowKind::FiveHour => five_hour_burn_at(turns, s.ts),
-            WindowKind::Weekly => weekly_burn_at(turns, s.ts),
+            WindowKind::Weekly => weekly_burn_at(turns, s.ts, cp),
         };
         if burn == 0 || util <= 0.0 {
             continue;
@@ -130,8 +129,9 @@ pub fn hour_of_day_cap_series(
     log: &[CalibrationSample],
     turns: &[Turn],
     kind: WindowKind,
+    cp: CalParams,
 ) -> [f64; 24] {
-    let raw = per_hour_medians(log, turns, kind);
+    let raw = per_hour_medians(log, turns, kind, cp);
     let smoothed = smooth_rolling_circular(&raw, 3);
     interpolate_empty_circular(&smoothed)
 }
@@ -142,6 +142,7 @@ mod tests {
     use crate::calibration::WindowKind;
     use crate::data::parser::Turn;
     use crate::log::calibration::CalibrationSample;
+    use crate::settings::CalParams;
     use chrono::{DateTime, TimeZone, Utc};
     use std::path::PathBuf;
 
@@ -182,7 +183,7 @@ mod tests {
 
     #[test]
     fn per_hour_medians_empty_log_returns_all_none() {
-        let raw = per_hour_medians(&[], &[], WindowKind::FiveHour);
+        let raw = per_hour_medians(&[], &[], WindowKind::FiveHour, CalParams::default());
         assert_eq!(raw.len(), 24);
         assert!(raw.iter().all(|v| v.is_none()));
     }
@@ -193,7 +194,7 @@ mod tests {
         // Burn = 100, util = 1.0 → implied cap = 100.
         let log = vec![sample(utc(2026, 5, 24, 14, 0), 1.0)];
         let turns = vec![turn(utc(2026, 5, 24, 13, 0), 100)];
-        let raw = per_hour_medians(&log, &turns, WindowKind::FiveHour);
+        let raw = per_hour_medians(&log, &turns, WindowKind::FiveHour, CalParams::default());
         // Bin 16 (local) should be Some(100.0).
         assert_eq!(raw[16], Some(100.0));
         // All other bins should be None.
@@ -251,7 +252,7 @@ mod tests {
 
     #[test]
     fn hour_of_day_cap_series_empty_returns_zeros() {
-        let out = hour_of_day_cap_series(&[], &[], WindowKind::FiveHour);
+        let out = hour_of_day_cap_series(&[], &[], WindowKind::FiveHour, CalParams::default());
         assert_eq!(out, [0.0; 24]);
     }
 }

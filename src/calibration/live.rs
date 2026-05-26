@@ -2,6 +2,7 @@
 
 use crate::calibration::anchors::{five_hour_burn_at, weekly_burn_at, DerivedCaps};
 use crate::data::parser::Turn;
+use crate::settings::CalParams;
 use chrono::{DateTime, Utc};
 
 /// Current local utilization, in [0.0, ∞). `None` means "uncalibrated" — i.e.
@@ -14,24 +15,25 @@ pub struct LiveUtil {
 
 /// Compute the current util against the supplied caps. `now` is passed in for
 /// testability — production callers should use `live_util_now`.
-pub fn live_util_at(turns: &[Turn], caps: &DerivedCaps, now: DateTime<Utc>) -> LiveUtil {
+pub fn live_util_at(turns: &[Turn], caps: &DerivedCaps, now: DateTime<Utc>, cp: CalParams) -> LiveUtil {
     LiveUtil {
         util_5h: caps
             .cap_5h
             .map(|c| five_hour_burn_at(turns, now) as f64 / c),
-        util_week: caps.cap_week.map(|c| weekly_burn_at(turns, now) as f64 / c),
+        util_week: caps.cap_week.map(|c| weekly_burn_at(turns, now, cp) as f64 / c),
     }
 }
 
 /// Convenience wrapper using `Utc::now()`.
 pub fn live_util_now(turns: &[Turn], caps: &DerivedCaps) -> LiveUtil {
-    live_util_at(turns, caps, Utc::now())
+    live_util_at(turns, caps, Utc::now(), CalParams::default())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::data::parser::Turn;
+    use crate::settings::CalParams;
     use chrono::{TimeZone, Utc};
     use std::path::PathBuf;
 
@@ -57,7 +59,7 @@ mod tests {
     fn live_util_at_no_caps_returns_no_util() {
         let caps = DerivedCaps::default();
         let now = Utc.with_ymd_and_hms(2026, 5, 24, 12, 0, 0).unwrap();
-        let live = live_util_at(&[], &caps, now);
+        let live = live_util_at(&[], &caps, now, CalParams::default());
         assert_eq!(live.util_5h, None);
         assert_eq!(live.util_week, None);
     }
@@ -75,7 +77,7 @@ mod tests {
             Utc.with_ymd_and_hms(2026, 5, 24, 11, 0, 0).unwrap(),
             250,
         )];
-        let live = live_util_at(&turns, &caps, now);
+        let live = live_util_at(&turns, &caps, now, CalParams::default());
         assert_eq!(live.util_5h, Some(0.25));
         // Weekly window includes the same turn.
         assert_eq!(live.util_week, Some(250.0 / 10_000.0));

@@ -94,7 +94,7 @@ impl DashboardApp {
             }
         }
         let filtered = self.filters.apply(&snap.turns);
-        let kpis = compute_kpis(&filtered, &snap.caps, &crate::settings::CostWeights::default());
+        let kpis = compute_kpis(&filtered, &snap.caps, &crate::settings::CostWeights::default(), crate::settings::CalParams::default());
         let mut view = snap.clone();
         view.turns = Arc::new(filtered);
         view.kpis = kpis;
@@ -120,14 +120,16 @@ impl DashboardApp {
                 &snap.log,
                 &snap.turns,
                 WindowKind::FiveHour,
+                crate::settings::CalParams::default(),
             )),
             implied_week: Arc::new(history::implied_cap_series(
                 &snap.log,
                 &snap.turns,
                 WindowKind::Weekly,
+                crate::settings::CalParams::default(),
             )),
-            stats_5h: history::per_hour_stats(&snap.log, &snap.turns, WindowKind::FiveHour),
-            stats_week: history::per_hour_stats(&snap.log, &snap.turns, WindowKind::Weekly),
+            stats_5h: history::per_hour_stats(&snap.log, &snap.turns, WindowKind::FiveHour, crate::settings::CalParams::default()),
+            stats_week: history::per_hour_stats(&snap.log, &snap.turns, WindowKind::Weekly, crate::settings::CalParams::default()),
         };
         self.cached_calib = Some((sig, data.clone()));
         data

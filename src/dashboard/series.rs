@@ -3,6 +3,7 @@
 use crate::calibration::anchors::last_weekly_reset;
 use crate::config::FIVE_HOUR_WINDOW_HOURS;
 use crate::data::parser::Turn;
+use crate::settings::CalParams;
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use chrono_tz::Tz;
 use std::collections::BTreeMap;
@@ -56,14 +57,14 @@ pub fn cumulative_share_series_5h(turns: &[Turn], cap: Option<f64>) -> Vec<Windo
 }
 
 /// Per-turn cumulative share within each fixed Sunday-07:00-local week.
-pub fn cumulative_share_series_weekly(turns: &[Turn], cap: Option<f64>) -> Vec<WindowedTurn> {
+pub fn cumulative_share_series_weekly(turns: &[Turn], cap: Option<f64>, cp: CalParams) -> Vec<WindowedTurn> {
     let mut out: Vec<WindowedTurn> = Vec::with_capacity(turns.len());
     let mut current_reset: Option<DateTime<Utc>> = None;
     let mut window_idx: usize = 0;
     let mut burn_in_window: u64 = 0;
 
     for t in turns {
-        let this_reset = last_weekly_reset(t.ts);
+        let this_reset = last_weekly_reset(t.ts, cp);
         match current_reset {
             None => {
                 current_reset = Some(this_reset);
