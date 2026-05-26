@@ -34,8 +34,10 @@ User is a **Rust beginner** (zero prior Rust experience as of 2026-05-22). Expla
 - **Stage 8 (mini-project 2) plan:** `docs/superpowers/plans/2026-05-25-stage-8-calibration-history.md` — task plan. **Shipped 2026-05-25 (tag `v0.9.0`).**
 - **Stage 8 (mini-project 3) spec:** `docs/superpowers/specs/2026-05-25-stage-8-live-api-banner-design.md` — live API status banner: persistent top strip showing poll status badge + last-poll age + next-poll ETA + live 5h/7d util. Reads the shared snapshot (adds `interval_secs`); account-wide (ignores the global filter bar).
 - **Stage 8 (mini-project 3) plan:** `docs/superpowers/plans/2026-05-25-stage-8-live-api-banner.md` — task plan. **Shipped 2026-05-25 (tag `v0.10.0`).**
+- **Stage 8 (mini-project 4) spec:** `docs/superpowers/specs/2026-05-26-stage-8-settings-panel-design.md` — Settings tab: local timezone, weekly reset, poll interval, cost weights; persisted to `settings.toml`, applied live via `SharedSettings` (`Arc<RwLock<Settings>>`) read at compute boundaries (Approach A). Account-wide. **Shipped 2026-05-26 (tag `v0.11.0`).**
+- **Stage 8 (mini-project 4) plan:** `docs/superpowers/plans/2026-05-26-stage-8-settings-panel.md` — task plan. **Shipped 2026-05-26 (tag `v0.11.0`).**
 
-Stage 8 ships as a series of mini-projects (one per spec+plan); the remaining one (settings panel) gets its own spec when started.
+Stage 8 shipped as a series of mini-projects (one per spec+plan). All four are complete; Stage 8 is done.
 
 ## Stage roadmap (summary — see spec for details)
 
@@ -49,7 +51,7 @@ Stage 8 ships as a series of mini-projects (one per spec+plan); the remaining on
 | 6 | egui dashboard window | ✅ Shipped — tag `v0.6.0`, pushed to GitHub |
 | 6.5 | Update notifier (GitHub Releases API) | ✅ Shipped — tag `v0.7.1` |
 | 7 | Supabase Storage upload | ✅ Shipped — tag `v0.7.0`, pushed to GitHub |
-| 8 | Streamlit feature parity (sessions table, filters, calibration history, live API banner) | 🔶 In progress — mini-project 1 (sessions table + filters) shipped `v0.8.0`; mini-project 2 (calibration history tab) shipped `v0.9.0`; mini-project 3 (live API status banner) shipped `v0.10.0` |
+| 8 | Streamlit feature parity (sessions table, filters, calibration history, live API banner, settings panel) | ✅ Shipped — mini-project 1 (sessions table + filters) `v0.8.0`; mini-project 2 (calibration history tab) `v0.9.0`; mini-project 3 (live API status banner) `v0.10.0`; mini-project 4 (settings panel) `v0.11.0` |
 
 ## Tech stack (locked in design)
 
@@ -74,6 +76,8 @@ Stage 8 ships as a series of mini-projects (one per spec+plan); the remaining on
 - Commit style: conventional (`feat:`, `fix:`, `style:`, `chore:`). Match what the plan's commit messages use.
 - `cargo fmt` + `cargo clippy --all-targets -- -D warnings` clean before each release tag.
 - Version bumps must `git add Cargo.toml Cargo.lock` together — bumping the version changes `Cargo.lock`'s own `version =` line, which `cargo build/test` regenerates silently.
+- **Runtime config lives in `settings.toml`** (Stage 8 mini-project 4): tray mode reads its poll interval from `~/.claude-usage-tray/settings.toml` (default 120s), NOT from the `--interval` CLI flag — that flag now governs only `--watch` terminal mode. Timezone/weekly-reset/cost-weights are also settings now; `config.rs` consts are the defaults (`Settings::default()`).
+- **Windows worktree gotcha:** building `cargo test` inside a nested `.claude/worktrees/...` path can fail at link time (`link.exe` exit 1201 / `STATUS_STACK_BUFFER_OVERRUN` / "rlib not found") due to MAX_PATH. Work on a feature branch in the main checkout instead; if linking OOMs intermittently, use `cargo test -j 1` to serialize.
 
 ## Known quirks (discovered during Stage 1, defer to a later stage)
 
