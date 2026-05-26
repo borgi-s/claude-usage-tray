@@ -128,8 +128,21 @@ pub struct CostWeights {
 ### Reading at boundaries (the Approach-A contract)
 
 Deep functions keep taking **plain values**, not the lock, so they stay
-unit-testable and never lock inside hot loops. The boundary reads the lock once,
-snapshots into locals, and passes them down:
+unit-testable and never lock inside hot loops. To keep each signature change to
+a *single* added parameter, the threaded values are small `Copy` bundles defined
+in `settings.rs`:
+
+```rust
+#[derive(Clone, Copy)]
+pub struct CalParams { pub tz: Tz, pub reset_weekday: Weekday, pub reset_hour: u32 }
+
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct CostWeights { pub input: f64, pub cache_creation: f64, pub cache_read: f64, pub output: f64 }
+```
+
+`Settings::cal_params()` and `Settings::cost_weights` produce them. The boundary
+reads the lock once, snapshots into a `Settings`, derives the bundle, and passes
+it down:
 
 - **Poller** (`polling_loop`): at the top of each iteration, read the lock once
   into a local `Settings`. Pass `weekly_reset` + `tz` into the calibration path
@@ -139,15 +152,21 @@ snapshots into locals, and passes them down:
   local; pass `cost_weights` into `compute_kpis` (`filtered_view`) and `tz` into
   chart axis/label formatting.
 
-Functions whose signatures gain parameters (the boundary set, ~6):
-`derive_caps`, `hour_of_day_cap_series`, `implied_cap_series`,
-`per_hour_stats` (calibration: take weekly-reset + tz where they currently read
-the const); `cost_weighted(&Turn, &CostWeights)` (the sole reader of the cost
-consts, `snapshot.rs:43`) and its callers `compute_kpis` + the daily chart;
-chart-axis / series formatters (take `Tz`). Each deep call site changes from
-reading a `config::` const to
-using the passed-in value. This is mechanical churn confined to the boundary
-functions and their immediate callees.
+Functions that gain a `CalParams` (weekly-reset + tz math reaches further than
+the master spec implied — `weekly_burn_at` / `last_weekly_reset` are also called
+from `history.rs` and `hourly.rs`, not just `derive_caps`): `last_weekly_reset`,
+`weekly_burn_at`, `peak_weekly_burn`, `global_cap_from_anchors`, `derive_caps`
+(anchors.rs); `qualifying_implied`, `implied_cap_series`, `per_hour_stats`
+(history.rs); `per_hour_medians`, `hour_of_day_cap_series` (hourly.rs);
+`cumulative_share_series_weekly` (series.rs). Functions that gain only
+`tz: Tz`: `format_x_tick` (axis.rs), `calendar_bands` + `hourly_overlay_points`
+(bands.rs/chart_5h.rs), the three `chart_*::render` fns, `FilterState::apply`
+(filters.rs), `sessions_table::render`. Functions that gain a `CostWeights`:
+`cost_weighted` (sole reader of the cost consts, `snapshot.rs:43`),
+`compute_kpis`, `daily_aggregates` (which also needs `tz`). Each deep call site
+changes from reading a `config::` const to using the passed-in value.
+`FIVE_HOUR_WINDOW_HOURS` and the anchor-util thresholds stay consts (not
+settings), so functions reading only those are unchanged.
 
 ### UI — `src/dashboard/settings_tab.rs` (new) + `Tab::Settings`
 
