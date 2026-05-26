@@ -208,27 +208,40 @@ mod tests {
 
     #[test]
     fn validate_rejects_bad_tz_hour_interval_and_weights() {
-        let mut s = Settings::default();
-        s.local_tz = "Not/AZone".into();
-        assert!(validate(&s).is_err());
+        assert!(validate(&Settings {
+            local_tz: "Not/AZone".into(),
+            ..Settings::default()
+        })
+        .is_err());
 
-        let mut s = Settings::default();
-        s.weekly_reset_hour = 24;
-        assert!(validate(&s).is_err());
+        assert!(validate(&Settings {
+            weekly_reset_hour: 24,
+            ..Settings::default()
+        })
+        .is_err());
 
-        let mut s = Settings::default();
-        s.poll_interval_secs = 90;
-        assert!(validate(&s).is_err());
+        assert!(validate(&Settings {
+            poll_interval_secs: 90,
+            ..Settings::default()
+        })
+        .is_err());
 
-        let mut s = Settings::default();
-        s.cost_weights.output = -1.0;
-        assert!(validate(&s).is_err());
+        assert!(validate(&Settings {
+            cost_weights: CostWeights {
+                output: -1.0,
+                ..CostWeights::default()
+            },
+            ..Settings::default()
+        })
+        .is_err());
     }
 
     #[test]
     fn cal_params_uses_parsed_tz() {
-        let mut s = Settings::default();
-        s.local_tz = "America/New_York".into();
+        let s = Settings {
+            local_tz: "America/New_York".into(),
+            ..Settings::default()
+        };
         assert_eq!(s.cal_params().tz, chrono_tz::America::New_York);
     }
 
@@ -251,10 +264,15 @@ mod tests {
     fn save_to_then_load_from_round_trips() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("settings.toml");
-        let mut s = Settings::default();
-        s.local_tz = "America/New_York".into();
-        s.poll_interval_secs = 300;
-        s.cost_weights.output = 9.0;
+        let s = Settings {
+            local_tz: "America/New_York".into(),
+            poll_interval_secs: 300,
+            cost_weights: CostWeights {
+                output: 9.0,
+                ..CostWeights::default()
+            },
+            ..Settings::default()
+        };
         save_to(&p, &s).unwrap();
         assert_eq!(load_from(&p), s);
     }
