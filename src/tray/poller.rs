@@ -157,7 +157,7 @@ fn polling_loop(
 
         // Write the shared snapshot for the dashboard. Build BEFORE sending
         // the mpsc event so an immediate UI-thread reaction can see fresh data.
-        let kpis = compute_kpis(&turns_arc, &calib.caps);
+        let kpis = compute_kpis(&turns_arc, &calib.caps, &crate::settings::CostWeights::default());
         let snapshot = AppSnapshot {
             turns: turns_arc,
             log: log_arc,

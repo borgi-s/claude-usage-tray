@@ -132,7 +132,7 @@ fn daily_aggregates_groups_by_local_date() {
         mk(utc(2026, 5, 24, 23, 30)),
         mk(utc(2026, 5, 25, 10, 0)),
     ];
-    let daily = daily_aggregates(&turns);
+    let daily = daily_aggregates(&turns, &claude_usage_tray::settings::CostWeights::default());
     // May 24 local: 1 turn = 73.5. May 25 local: 2 turns = 147.0.
     assert_eq!(daily.len(), 2);
     let may24 = daily.iter().find(|(d, _)| d.day() == 24).unwrap();
@@ -145,6 +145,6 @@ fn daily_aggregates_groups_by_local_date() {
 fn daily_aggregates_empty_returns_empty() {
     use claude_usage_tray::dashboard::series::daily_aggregates;
 
-    let out = daily_aggregates(&[]);
+    let out = daily_aggregates(&[], &claude_usage_tray::settings::CostWeights::default());
     assert!(out.is_empty());
 }

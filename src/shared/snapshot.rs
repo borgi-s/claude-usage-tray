@@ -36,22 +36,22 @@ pub struct DashboardKpis {
     pub daily_avg_cost_weighted: f64,
 }
 
-use crate::config;
+use crate::settings::CostWeights;
 
 /// Heuristic cost-weighted token count for a single turn. Used by the
 /// dashboard's "total burn" KPI + daily bar chart. NOT used for cap math.
-pub fn cost_weighted(turn: &Turn) -> f64 {
-    turn.input_tokens as f64 * config::COST_WEIGHT_INPUT
-        + turn.cache_creation_input_tokens as f64 * config::COST_WEIGHT_CACHE_CREATION
-        + turn.cache_read_input_tokens as f64 * config::COST_WEIGHT_CACHE_READ
-        + turn.output_tokens as f64 * config::COST_WEIGHT_OUTPUT
+pub fn cost_weighted(turn: &Turn, w: &CostWeights) -> f64 {
+    turn.input_tokens as f64 * w.input
+        + turn.cache_creation_input_tokens as f64 * w.cache_creation
+        + turn.cache_read_input_tokens as f64 * w.cache_read
+        + turn.output_tokens as f64 * w.output
 }
 
 use crate::calibration::anchors::{peak_five_hour_burn, peak_weekly_burn};
 
 /// Compute all four KPIs from the turns + caps. Called once per poll.
-pub fn compute_kpis(turns: &[Turn], caps: &DerivedCaps) -> DashboardKpis {
-    let total_cw: f64 = turns.iter().map(cost_weighted).sum();
+pub fn compute_kpis(turns: &[Turn], caps: &DerivedCaps, w: &CostWeights) -> DashboardKpis {
+    let total_cw: f64 = turns.iter().map(|t| cost_weighted(t, w)).sum();
     let daily_avg = if turns.len() < 2 {
         total_cw // sub-day data: report total as daily avg
     } else {
@@ -114,7 +114,7 @@ mod tests {
         // Input=100, cache_create=200, cache_read=300, output=400.
         // Expected: 100*1 + 200*1.25 + 300*0.1 + 400*5 = 100 + 250 + 30 + 2000 = 2380.
         let t = turn(100, 200, 300, 400);
-        assert!((cost_weighted(&t) - 2380.0).abs() < 0.001);
+        assert!((cost_weighted(&t, &CostWeights::default()) - 2380.0).abs() < 0.001);
     }
 
     use chrono::TimeZone;
@@ -144,7 +144,7 @@ mod tests {
             n_anchors_5h: 1,
             n_anchors_week: 0,
         };
-        let k = compute_kpis(&turns, &caps);
+        let k = compute_kpis(&turns, &caps, &CostWeights::default());
         assert!((k.peak_5h_share - 0.6).abs() < 0.001);
     }
 
@@ -152,7 +152,7 @@ mod tests {
     fn compute_kpis_peak_share_zero_when_cap_none() {
         let turns = vec![turn_at(utc(2026, 5, 24, 10, 0), 100)];
         let caps = DerivedCaps::default(); // both caps None
-        let k = compute_kpis(&turns, &caps);
+        let k = compute_kpis(&turns, &caps, &CostWeights::default());
         assert_eq!(k.peak_5h_share, 0.0);
         assert_eq!(k.peak_week_share, 0.0);
     }
@@ -179,7 +179,7 @@ mod tests {
             })
             .collect();
         let caps = DerivedCaps::default();
-        let k = compute_kpis(&turns, &caps);
+        let k = compute_kpis(&turns, &caps, &CostWeights::default());
         // total = 4 * 7.35 = 29.4
         assert!((k.total_cost_weighted - 29.4).abs() < 0.01);
         // first=24 10:00, last=25 10:00 → span = exactly 1 day.
@@ -189,9 +189,16 @@ mod tests {
 
     #[test]
     fn compute_kpis_empty_turns_returns_zeros() {
-        let k = compute_kpis(&[], &DerivedCaps::default());
+        let k = compute_kpis(&[], &DerivedCaps::default(), &CostWeights::default());
         assert_eq!(k.peak_5h_share, 0.0);
         assert_eq!(k.total_cost_weighted, 0.0);
         assert_eq!(k.daily_avg_cost_weighted, 0.0);
+    }
+
+    #[test]
+    fn cost_weighted_uses_passed_weights_not_consts() {
+        let w = CostWeights { input: 2.0, cache_creation: 2.0, cache_read: 2.0, output: 2.0 };
+        let t = turn(10, 10, 10, 10);
+        assert!((cost_weighted(&t, &w) - 80.0).abs() < 1e-9);
     }
 }

@@ -10,6 +10,7 @@ pub fn prompt_tokens(t: &Turn) -> u64 {
     t.input_tokens + t.cache_creation_input_tokens + t.cache_read_input_tokens
 }
 
+use crate::settings::CostWeights;
 use crate::shared::snapshot::cost_weighted;
 use chrono::{DateTime, Utc};
 use std::collections::{BTreeSet, HashMap};
@@ -42,7 +43,7 @@ pub struct SessionSummary {
 /// start/end/model/project/peak/main-cost; subagent rows (same session_id)
 /// contribute cost + distinct count. Sessions with no main-thread rows are
 /// dropped. Output is sorted by `start` ascending.
-pub fn session_summaries(turns: &[Turn]) -> Vec<SessionSummary> {
+pub fn session_summaries(turns: &[Turn], w: &CostWeights) -> Vec<SessionSummary> {
     let mut groups: HashMap<&str, Vec<&Turn>> = HashMap::new();
     for t in turns {
         groups.entry(t.session_id.as_str()).or_default().push(t);
@@ -69,10 +70,10 @@ pub fn session_summaries(turns: &[Turn]) -> Vec<SessionSummary> {
                 prompt_tokens(t) as f64 / window as f64
             })
             .fold(0.0_f64, f64::max);
-        let main_cost_weighted: f64 = mains.iter().map(|t| cost_weighted(t)).sum();
+        let main_cost_weighted: f64 = mains.iter().map(|t| cost_weighted(t, w)).sum();
 
         let subs: Vec<&Turn> = rows.iter().copied().filter(|t| t.is_subagent).collect();
-        let subagent_cost_weighted: f64 = subs.iter().map(|t| cost_weighted(t)).sum();
+        let subagent_cost_weighted: f64 = subs.iter().map(|t| cost_weighted(t, w)).sum();
         let mut sub_ids: BTreeSet<&str> = BTreeSet::new();
         for t in &subs {
             if let Some(id) = &t.subagent_id {
@@ -237,7 +238,7 @@ mod tests {
                 20,
             ),
         ];
-        let out = session_summaries(&turns);
+        let out = session_summaries(&turns, &CostWeights::default());
         assert_eq!(out.len(), 1);
         let s = &out[0];
         assert_eq!(s.session_id, "s1");
@@ -297,7 +298,7 @@ mod tests {
                 50,
             ),
         ];
-        let out = session_summaries(&turns);
+        let out = session_summaries(&turns, &CostWeights::default());
         assert_eq!(out.len(), 1);
         let s = &out[0];
         assert_eq!(s.main_turns, 1);
@@ -320,7 +321,7 @@ mod tests {
             0,
             50,
         )];
-        assert!(session_summaries(&turns).is_empty());
+        assert!(session_summaries(&turns, &CostWeights::default()).is_empty());
     }
 
     #[test]
@@ -347,7 +348,7 @@ mod tests {
                 0,
             ),
         ];
-        let s = &session_summaries(&turns)[0];
+        let s = &session_summaries(&turns, &CostWeights::default())[0];
         assert_eq!(s.project_cwd, "/new");
         assert_eq!(s.model, "claude-opus-4-7");
     }
@@ -376,7 +377,7 @@ mod tests {
                 0,
             ),
         ];
-        let out = session_summaries(&turns);
+        let out = session_summaries(&turns, &CostWeights::default());
         assert_eq!(out[0].session_id, "early");
         assert_eq!(out[1].session_id, "late");
     }

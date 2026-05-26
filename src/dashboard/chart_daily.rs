@@ -30,7 +30,7 @@ pub fn render(ui: &mut Ui, snap: &AppSnapshot, range: &mut Range) {
     }
 
     let tz: Tz = crate::config::LOCAL_TZ.parse().expect("LOCAL_TZ");
-    let aggregates = daily_aggregates(&snap.turns);
+    let aggregates = daily_aggregates(&snap.turns, &crate::settings::CostWeights::default());
 
     let bars: Vec<Bar> = aggregates
         .iter()

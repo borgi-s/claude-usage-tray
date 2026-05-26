@@ -10,7 +10,7 @@ fn fixture_sessions_aggregate_with_subagent() {
         "tests/fixtures/subagents/agent-deadbeef.jsonl",
     )));
 
-    let summaries = session_summaries(&turns);
+    let summaries = session_summaries(&turns, &claude_usage_tray::settings::CostWeights::default());
     // sess-A (2 main + 1 subagent) and sess-B (1 main), sorted by start.
     assert_eq!(summaries.len(), 2);
     assert_eq!(summaries[0].session_id, "sess-A");

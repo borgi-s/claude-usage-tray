@@ -90,7 +90,7 @@ pub fn cumulative_share_series_weekly(turns: &[Turn], cap: Option<f64>) -> Vec<W
 }
 
 /// Sum cost-weighted tokens per local-date, returned in ascending date order.
-pub fn daily_aggregates(turns: &[Turn]) -> Vec<(NaiveDate, f64)> {
+pub fn daily_aggregates(turns: &[Turn], w: &crate::settings::CostWeights) -> Vec<(NaiveDate, f64)> {
     use crate::shared::snapshot::cost_weighted;
 
     let tz: Tz = crate::config::LOCAL_TZ
@@ -99,7 +99,7 @@ pub fn daily_aggregates(turns: &[Turn]) -> Vec<(NaiveDate, f64)> {
     let mut map: BTreeMap<NaiveDate, f64> = BTreeMap::new();
     for t in turns {
         let local_date = t.ts.with_timezone(&tz).date_naive();
-        *map.entry(local_date).or_default() += cost_weighted(t);
+        *map.entry(local_date).or_default() += cost_weighted(t, w);
     }
     map.into_iter().collect()
 }

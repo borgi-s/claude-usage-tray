@@ -94,7 +94,7 @@ impl DashboardApp {
             }
         }
         let filtered = self.filters.apply(&snap.turns);
-        let kpis = compute_kpis(&filtered, &snap.caps);
+        let kpis = compute_kpis(&filtered, &snap.caps, &crate::settings::CostWeights::default());
         let mut view = snap.clone();
         view.turns = Arc::new(filtered);
         view.kpis = kpis;

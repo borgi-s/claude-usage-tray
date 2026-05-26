@@ -45,7 +45,7 @@ pub fn render(ui: &mut Ui, turns: &[Turn], controls: &mut TableControls) {
         ui.add(egui::DragValue::new(&mut controls.min_duration_s).range(0.0..=86_400.0));
     });
 
-    let mut summaries = session_summaries(turns);
+    let mut summaries = session_summaries(turns, &crate::settings::CostWeights::default());
     sort_sessions(&mut summaries, controls.sort);
     let (summaries, hidden) =
         hide_degenerate(summaries, controls.min_turns, controls.min_duration_s);
