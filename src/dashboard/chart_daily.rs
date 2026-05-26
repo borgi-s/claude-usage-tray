@@ -3,7 +3,7 @@
 use crate::dashboard::range::{clamp_x_range, Range};
 use crate::dashboard::series::daily_aggregates;
 use crate::shared::snapshot::AppSnapshot;
-use chrono::{NaiveTime, TimeZone, Utc};
+use chrono::{NaiveTime, Utc};
 use egui::{Color32, Ui};
 use egui_plot::{Bar, BarChart, Plot};
 
@@ -40,8 +40,7 @@ pub fn render(
         .iter()
         .filter_map(|(date, val)| {
             let date_naive = date.and_time(NaiveTime::from_hms_opt(12, 0, 0).unwrap());
-            let local_dt = tz.from_local_datetime(&date_naive).single()?;
-            let utc_dt = local_dt.with_timezone(&Utc);
+            let utc_dt = crate::dashboard::axis::local_to_utc(tz, date_naive);
             if utc_dt < x_start || utc_dt > x_end {
                 return None;
             }

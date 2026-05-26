@@ -1,6 +1,7 @@
 //! Calendar shading bands — weekends (Sat+Sun in local TZ) and nights (22:00-06:00 local).
 
-use chrono::{DateTime, Datelike, Duration, TimeZone, Utc, Weekday};
+use crate::dashboard::axis::local_to_utc;
+use chrono::{DateTime, Datelike, Duration, Utc, Weekday};
 use chrono_tz::Tz;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,10 +33,8 @@ pub fn calendar_bands(
         let local_end_naive = (weekend_start_local + Duration::days(2))
             .and_hms_opt(0, 0, 0)
             .unwrap();
-        let local_start = tz.from_local_datetime(&local_start_naive).single().unwrap();
-        let local_end = tz.from_local_datetime(&local_end_naive).single().unwrap();
-        let utc_start = local_start.with_timezone(&Utc);
-        let utc_end = local_end.with_timezone(&Utc);
+        let utc_start = local_to_utc(tz, local_start_naive);
+        let utc_end = local_to_utc(tz, local_end_naive);
 
         if utc_start >= range_end {
             break;
@@ -57,10 +56,8 @@ pub fn calendar_bands(
         let local_end_naive = (night_local_date + Duration::days(1))
             .and_hms_opt(6, 0, 0)
             .unwrap();
-        let local_start = tz.from_local_datetime(&local_start_naive).single().unwrap();
-        let local_end = tz.from_local_datetime(&local_end_naive).single().unwrap();
-        let utc_start = local_start.with_timezone(&Utc);
-        let utc_end = local_end.with_timezone(&Utc);
+        let utc_start = local_to_utc(tz, local_start_naive);
+        let utc_end = local_to_utc(tz, local_end_naive);
 
         if utc_start >= range_end {
             break;
