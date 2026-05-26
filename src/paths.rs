@@ -38,3 +38,8 @@ pub fn cache_manifest_path() -> Result<PathBuf> {
 pub fn state_path() -> Result<PathBuf> {
     Ok(app_dir()?.join("state.json"))
 }
+
+/// Returns ~/.claude-usage-tray/settings.toml. Does NOT create the file.
+pub fn settings_path() -> Result<PathBuf> {
+    Ok(app_dir()?.join("settings.toml"))
+}

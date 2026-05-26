@@ -8,6 +8,7 @@ pub mod log;
 pub mod paths;
 pub mod poll;
 pub mod render;
+pub mod settings;
 pub mod shared;
 pub mod state;
 pub mod sync;
