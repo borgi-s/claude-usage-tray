@@ -26,7 +26,13 @@ impl Default for TableControls {
     }
 }
 
-pub fn render(ui: &mut Ui, turns: &[Turn], controls: &mut TableControls, tz: chrono_tz::Tz, w: &crate::settings::CostWeights) {
+pub fn render(
+    ui: &mut Ui,
+    turns: &[Turn],
+    controls: &mut TableControls,
+    tz: chrono_tz::Tz,
+    w: &crate::settings::CostWeights,
+) {
     // Controls row.
     ui.horizontal(|ui| {
         ui.label("Sort:");

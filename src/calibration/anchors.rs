@@ -406,7 +406,8 @@ mod tests {
     fn global_cap_zero_anchors_returns_none() {
         let log = vec![sample(utc(2026, 5, 24, 10, 0), 0.5, 0.4)];
         let turns = vec![turn(utc(2026, 5, 24, 9, 0), 100)];
-        let (cap, n) = global_cap_from_anchors(&log, &turns, WindowKind::FiveHour, CalParams::default());
+        let (cap, n) =
+            global_cap_from_anchors(&log, &turns, WindowKind::FiveHour, CalParams::default());
         assert!(cap.is_none());
         assert_eq!(n, 0);
     }
@@ -419,7 +420,8 @@ mod tests {
             turn(utc(2026, 5, 24, 8, 0), 400),
             turn(utc(2026, 5, 24, 9, 0), 600),
         ];
-        let (cap, n) = global_cap_from_anchors(&log, &turns, WindowKind::FiveHour, CalParams::default());
+        let (cap, n) =
+            global_cap_from_anchors(&log, &turns, WindowKind::FiveHour, CalParams::default());
         assert_eq!(cap, Some(1000.0));
         assert_eq!(n, 1);
     }
@@ -440,7 +442,8 @@ mod tests {
             // Anchor 2's window ends, anchor 3 starts a new window.
             turn(utc(2026, 5, 24, 21, 30), 300), // anchor 3: burn 300, util 1 → cap 300
         ];
-        let (cap, n) = global_cap_from_anchors(&log, &turns, WindowKind::FiveHour, CalParams::default());
+        let (cap, n) =
+            global_cap_from_anchors(&log, &turns, WindowKind::FiveHour, CalParams::default());
         assert_eq!(cap, Some(200.0));
         assert_eq!(n, 3);
     }

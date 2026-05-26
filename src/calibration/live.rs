@@ -15,12 +15,19 @@ pub struct LiveUtil {
 
 /// Compute the current util against the supplied caps. `now` is passed in for
 /// testability — production callers should use `live_util_now`.
-pub fn live_util_at(turns: &[Turn], caps: &DerivedCaps, now: DateTime<Utc>, cp: CalParams) -> LiveUtil {
+pub fn live_util_at(
+    turns: &[Turn],
+    caps: &DerivedCaps,
+    now: DateTime<Utc>,
+    cp: CalParams,
+) -> LiveUtil {
     LiveUtil {
         util_5h: caps
             .cap_5h
             .map(|c| five_hour_burn_at(turns, now) as f64 / c),
-        util_week: caps.cap_week.map(|c| weekly_burn_at(turns, now, cp) as f64 / c),
+        util_week: caps
+            .cap_week
+            .map(|c| weekly_burn_at(turns, now, cp) as f64 / c),
     }
 }
 

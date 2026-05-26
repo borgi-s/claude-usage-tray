@@ -215,7 +215,9 @@ mod tests {
 
     #[test]
     fn implied_empty_log_is_empty() {
-        assert!(implied_cap_series(&[], &[], WindowKind::FiveHour, CalParams::default()).is_empty());
+        assert!(
+            implied_cap_series(&[], &[], WindowKind::FiveHour, CalParams::default()).is_empty()
+        );
     }
 
     #[test]
@@ -282,7 +284,12 @@ mod tests {
             sample(utc(2026, 5, 19, 14, 0), 1.0),
         ];
         let stats = per_hour_stats(&log, &turns, WindowKind::FiveHour, CalParams::default());
-        let raw = crate::calibration::hourly::per_hour_medians(&log, &turns, WindowKind::FiveHour, CalParams::default());
+        let raw = crate::calibration::hourly::per_hour_medians(
+            &log,
+            &turns,
+            WindowKind::FiveHour,
+            CalParams::default(),
+        );
         assert_eq!(stats[16].median, raw[16]);
     }
 }

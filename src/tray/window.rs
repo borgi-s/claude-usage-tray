@@ -539,7 +539,10 @@ fn on_left_click(state: &mut TrayState) {
         _ => {
             // No dashboard yet (first click) — spawn the single persistent thread.
             tracing::info!("spawning dashboard window");
-            *guard = Some(crate::dashboard::launch(state.shared.clone(), state.settings.clone()));
+            *guard = Some(crate::dashboard::launch(
+                state.shared.clone(),
+                state.settings.clone(),
+            ));
         }
     }
 }

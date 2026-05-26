@@ -56,7 +56,11 @@ pub fn cumulative_share_series_5h(turns: &[Turn], cap: Option<f64>) -> Vec<Windo
 }
 
 /// Per-turn cumulative share within each fixed Sunday-07:00-local week.
-pub fn cumulative_share_series_weekly(turns: &[Turn], cap: Option<f64>, cp: CalParams) -> Vec<WindowedTurn> {
+pub fn cumulative_share_series_weekly(
+    turns: &[Turn],
+    cap: Option<f64>,
+    cp: CalParams,
+) -> Vec<WindowedTurn> {
     let mut out: Vec<WindowedTurn> = Vec::with_capacity(turns.len());
     let mut current_reset: Option<DateTime<Utc>> = None;
     let mut window_idx: usize = 0;
@@ -90,7 +94,11 @@ pub fn cumulative_share_series_weekly(turns: &[Turn], cap: Option<f64>, cp: CalP
 }
 
 /// Sum cost-weighted tokens per local-date, returned in ascending date order.
-pub fn daily_aggregates(turns: &[Turn], w: &crate::settings::CostWeights, tz: chrono_tz::Tz) -> Vec<(NaiveDate, f64)> {
+pub fn daily_aggregates(
+    turns: &[Turn],
+    w: &crate::settings::CostWeights,
+    tz: chrono_tz::Tz,
+) -> Vec<(NaiveDate, f64)> {
     use crate::shared::snapshot::cost_weighted;
     let mut map: BTreeMap<NaiveDate, f64> = BTreeMap::new();
     for t in turns {

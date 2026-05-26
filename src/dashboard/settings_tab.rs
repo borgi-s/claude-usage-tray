@@ -89,11 +89,7 @@ pub fn render(
             ui.label("Poll interval");
             ui.horizontal(|ui| {
                 for secs in POLL_INTERVAL_CHOICES {
-                    ui.selectable_value(
-                        &mut draft.poll_interval_secs,
-                        secs,
-                        format!("{secs}s"),
-                    );
+                    ui.selectable_value(&mut draft.poll_interval_secs, secs, format!("{secs}s"));
                 }
             });
             ui.end_row();
@@ -132,16 +128,24 @@ pub fn render(
 
         match (&valid, dirty, save_msg.as_ref()) {
             (Err(msg), _, _) => {
-                ui.label(RichText::new(format!("✗ {msg}")).color(egui::Color32::from_rgb(220, 120, 120)));
+                ui.label(
+                    RichText::new(format!("✗ {msg}")).color(egui::Color32::from_rgb(220, 120, 120)),
+                );
             }
             (Ok(()), true, _) => {
-                ui.label(RichText::new("● unsaved changes").color(egui::Color32::from_rgb(220, 200, 120)));
+                ui.label(
+                    RichText::new("● unsaved changes")
+                        .color(egui::Color32::from_rgb(220, 200, 120)),
+                );
             }
             (Ok(()), false, Some(Ok(()))) => {
                 ui.label(RichText::new("✓ Saved").color(egui::Color32::from_rgb(120, 200, 120)));
             }
             (Ok(()), false, Some(Err(e))) => {
-                ui.label(RichText::new(format!("✗ save failed: {e}")).color(egui::Color32::from_rgb(220, 120, 120)));
+                ui.label(
+                    RichText::new(format!("✗ save failed: {e}"))
+                        .color(egui::Color32::from_rgb(220, 120, 120)),
+                );
             }
             (Ok(()), false, None) => {}
         }

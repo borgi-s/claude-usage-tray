@@ -125,7 +125,9 @@ pub fn validate(s: &Settings) -> Result<(), String> {
         ("output", w.output),
     ] {
         if !v.is_finite() || v < 0.0 {
-            return Err(format!("cost weight '{name}' must be a finite value >= 0.0"));
+            return Err(format!(
+                "cost weight '{name}' must be a finite value >= 0.0"
+            ));
         }
     }
     Ok(())
@@ -196,7 +198,10 @@ mod tests {
         assert_eq!(s.weekly_reset_hour, config::WEEKLY_RESET_HOUR_LOCAL);
         assert_eq!(s.poll_interval_secs, 120);
         assert_eq!(s.cost_weights.input, config::COST_WEIGHT_INPUT);
-        assert_eq!(s.cost_weights.cache_creation, config::COST_WEIGHT_CACHE_CREATION);
+        assert_eq!(
+            s.cost_weights.cache_creation,
+            config::COST_WEIGHT_CACHE_CREATION
+        );
         assert_eq!(s.cost_weights.cache_read, config::COST_WEIGHT_CACHE_READ);
         assert_eq!(s.cost_weights.output, config::COST_WEIGHT_OUTPUT);
     }

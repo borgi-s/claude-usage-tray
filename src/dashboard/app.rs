@@ -70,7 +70,11 @@ pub struct DashboardApp {
 }
 
 impl DashboardApp {
-    pub fn new(shared: SharedSnapshot, signals: Arc<DashboardSignals>, settings: SharedSettings) -> Self {
+    pub fn new(
+        shared: SharedSnapshot,
+        signals: Arc<DashboardSignals>,
+        settings: SharedSettings,
+    ) -> Self {
         let settings_draft = settings.read().map(|g| g.clone()).unwrap_or_default();
         Self {
             shared,
@@ -95,7 +99,12 @@ impl DashboardApp {
     /// Build (or reuse) the filtered AppSnapshot: turns filtered + KPIs
     /// recomputed; caps/hourly/live copied through unchanged. Memoized on the
     /// filter state, the turn vector's length+last-timestamp, and current settings.
-    fn filtered_view(&mut self, snap: &AppSnapshot, cp: CalParams, weights: CostWeights) -> AppSnapshot {
+    fn filtered_view(
+        &mut self,
+        snap: &AppSnapshot,
+        cp: CalParams,
+        weights: CostWeights,
+    ) -> AppSnapshot {
         let sig = ViewSig {
             filter: self.filters.clone(),
             n_turns: snap.turns.len(),

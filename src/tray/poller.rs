@@ -103,10 +103,7 @@ fn polling_loop(
         g.interval_secs = initial_interval;
     }
 
-    tracing::info!(
-        interval_secs = initial_interval,
-        "polling thread starting"
-    );
+    tracing::info!(interval_secs = initial_interval, "polling thread starting");
 
     // Stage 7: best-effort Supabase sync. `None` when unconfigured (no .env) —
     // the agent then behaves exactly as before.
@@ -218,7 +215,9 @@ fn polling_loop(
 /// (calibration, turns_arc) so the polling loop can put turns on the shared
 /// snapshot. On any error, returns (default, Arc::new(Vec::new())) so the
 /// poll itself still proceeds.
-fn compute_calibration_with_turns(cp: crate::settings::CalParams) -> (
+fn compute_calibration_with_turns(
+    cp: crate::settings::CalParams,
+) -> (
     PollCalibration,
     Arc<Vec<Turn>>,
     Arc<Vec<crate::log::calibration::CalibrationSample>>,

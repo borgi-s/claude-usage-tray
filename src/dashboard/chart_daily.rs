@@ -9,7 +9,13 @@ use egui_plot::{Bar, BarChart, Plot};
 
 const COLOR_BAR: Color32 = Color32::from_rgb(79, 140, 255);
 
-pub fn render(ui: &mut Ui, snap: &AppSnapshot, range: &mut Range, w: &crate::settings::CostWeights, tz: chrono_tz::Tz) {
+pub fn render(
+    ui: &mut Ui,
+    snap: &AppSnapshot,
+    range: &mut Range,
+    w: &crate::settings::CostWeights,
+    tz: chrono_tz::Tz,
+) {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("Daily burn").strong());
         ui.separator();
