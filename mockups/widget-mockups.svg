@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="860" viewBox="0 0 980 860" font-family="Segoe UI, Segoe, sans-serif">
+  <!-- ============ background ============ -->
+  <rect x="0" y="0" width="980" height="860" fill="#0f0f10"/>
+  <text x="40" y="48" fill="#ffffff" font-size="26" font-weight="700">Claude usage tray — docked taskbar widget mockups</text>
+  <text x="40" y="76" fill="#9aa0a6" font-size="15">Two bars (5h + 7d) · live %, countdown-to-reset · color = anchored gradient (green→yellow→red). Raw API util. Bar height tuned to sit on the Win11 taskbar (~40px).</text>
+
+  <!-- ============ VARIANT A — stacked mini-bars (recommended) ============ -->
+  <text x="40" y="140" fill="#ffffff" font-size="19" font-weight="700">Variant A · stacked mini-bars  (recommended)</text>
+  <text x="40" y="164" fill="#9aa0a6" font-size="13">Two rows, label · bar · % · reset countdown. Compact width, full taskbar height. Most info per pixel; closest to CodeZeno.</text>
+
+  <!-- panel -->
+  <rect x="40" y="184" width="300" height="64" rx="8" fill="#202124" stroke="#3a3c40" stroke-width="1"/>
+  <!-- row 5h -->
+  <text x="58" y="214" fill="#c8ccd0" font-size="13" font-weight="700">5h</text>
+  <rect x="86" y="204" width="150" height="9" rx="4.5" fill="#34363b"/>
+  <rect x="86" y="204" width="86" height="9" rx="4.5" fill="#d8b21a"/>
+  <text x="246" y="214" fill="#ffffff" font-size="13" font-weight="700">57%</text>
+  <text x="292" y="214" fill="#9aa0a6" font-size="12">1h42m</text>
+  <!-- row 7d -->
+  <text x="58" y="238" fill="#c8ccd0" font-size="13" font-weight="700">7d</text>
+  <rect x="86" y="228" width="150" height="9" rx="4.5" fill="#34363b"/>
+  <rect x="86" y="228" width="63" height="9" rx="4.5" fill="#5fb030"/>
+  <text x="246" y="238" fill="#ffffff" font-size="13" font-weight="700">42%</text>
+  <text x="292" y="238" fill="#9aa0a6" font-size="12">3d 04h</text>
+
+  <!-- zoom callout -->
+  <text x="372" y="204" fill="#6f7479" font-size="12">↙ shown at ~1:1 (≈300×64 px). Bars are 9px tall, rounded.</text>
+  <text x="372" y="226" fill="#6f7479" font-size="12">Countdown ticks each second between polls (cheap WM_TIMER repaint).</text>
+
+  <!-- ============ VARIANT B — side-by-side gauges ============ -->
+  <text x="40" y="316" fill="#ffffff" font-size="19" font-weight="700">Variant B · side-by-side gauges</text>
+  <text x="40" y="340" fill="#9aa0a6" font-size="13">Two labeled segments split by a divider. Wider; reads like two distinct meters. More horizontal taskbar real estate.</text>
+
+  <rect x="40" y="360" width="392" height="64" rx="8" fill="#202124" stroke="#3a3c40" stroke-width="1"/>
+  <!-- left gauge 5h -->
+  <text x="58" y="384" fill="#9aa0a6" font-size="12">5h · 1h42m</text>
+  <text x="178" y="385" fill="#ffffff" font-size="14" font-weight="700" text-anchor="end">57%</text>
+  <rect x="58" y="396" width="120" height="11" rx="5.5" fill="#34363b"/>
+  <rect x="58" y="396" width="68" height="11" rx="5.5" fill="#d8b21a"/>
+  <!-- divider -->
+  <rect x="220" y="372" width="1" height="40" fill="#3a3c40"/>
+  <!-- right gauge 7d -->
+  <text x="244" y="384" fill="#9aa0a6" font-size="12">7d · 3d 04h</text>
+  <text x="414" y="385" fill="#ffffff" font-size="14" font-weight="700" text-anchor="end">42%</text>
+  <rect x="244" y="396" width="170" height="11" rx="5.5" fill="#34363b"/>
+  <rect x="244" y="396" width="71" height="11" rx="5.5" fill="#5fb030"/>
+
+  <!-- ============ COLOR STATES ============ -->
+  <text x="40" y="492" fill="#ffffff" font-size="19" font-weight="700">Color &amp; status states (Variant A row)</text>
+  <text x="40" y="516" fill="#9aa0a6" font-size="13">Reuses icon.rs anchored_gradient + the gray-?/red-! special states, so widget and tray icon always agree.</text>
+
+  <!-- state: low/green -->
+  <rect x="40" y="536" width="200" height="40" rx="6" fill="#202124" stroke="#3a3c40"/>
+  <text x="54" y="561" fill="#c8ccd0" font-size="12" font-weight="700">5h</text>
+  <rect x="78" y="552" width="110" height="8" rx="4" fill="#34363b"/>
+  <rect x="78" y="552" width="35" height="8" rx="4" fill="#2eb82e"/>
+  <text x="198" y="561" fill="#ffffff" font-size="12" font-weight="700">32%</text>
+
+  <!-- state: mid/yellow -->
+  <rect x="260" y="536" width="200" height="40" rx="6" fill="#202124" stroke="#3a3c40"/>
+  <text x="274" y="561" fill="#c8ccd0" font-size="12" font-weight="700">5h</text>
+  <rect x="298" y="552" width="110" height="8" rx="4" fill="#34363b"/>
+  <rect x="298" y="552" width="75" height="8" rx="4" fill="#e6b800"/>
+  <text x="418" y="561" fill="#ffffff" font-size="12" font-weight="700">68%</text>
+
+  <!-- state: high/red -->
+  <rect x="480" y="536" width="200" height="40" rx="6" fill="#202124" stroke="#3a3c40"/>
+  <text x="494" y="561" fill="#c8ccd0" font-size="12" font-weight="700">5h</text>
+  <rect x="518" y="552" width="110" height="8" rx="4" fill="#34363b"/>
+  <rect x="518" y="552" width="100" height="8" rx="4" fill="#cc2929"/>
+  <text x="638" y="561" fill="#ffffff" font-size="12" font-weight="700">91%</text>
+
+  <!-- state: over 100 / bang -->
+  <rect x="40" y="588" width="200" height="40" rx="6" fill="#202124" stroke="#3a3c40"/>
+  <text x="54" y="613" fill="#c8ccd0" font-size="12" font-weight="700">5h</text>
+  <rect x="78" y="604" width="110" height="8" rx="4" fill="#cc2929"/>
+  <text x="198" y="613" fill="#ff6b6b" font-size="13" font-weight="700">!</text>
+
+  <!-- state: no data / question -->
+  <rect x="260" y="588" width="200" height="40" rx="6" fill="#202124" stroke="#3a3c40"/>
+  <text x="274" y="613" fill="#9aa0a6" font-size="12" font-weight="700">5h</text>
+  <rect x="298" y="604" width="110" height="8" rx="4" fill="#34363b"/>
+  <text x="418" y="613" fill="#9aa0a6" font-size="13" font-weight="700">?</text>
+  <text x="480" y="613" fill="#6f7479" font-size="12">! = util &gt; 100% · ? = rate-limited / error / no sample</text>
+
+  <!-- ============ IN-CONTEXT ON TASKBAR ============ -->
+  <text x="40" y="684" fill="#ffffff" font-size="19" font-weight="700">In context — docked over the Win11 taskbar (Variant A)</text>
+
+  <!-- taskbar strip -->
+  <rect x="40" y="700" width="900" height="48" fill="#1b1b1c"/>
+  <!-- centered app icons (decorative) -->
+  <rect x="430" y="714" width="20" height="20" rx="4" fill="#3a3c40"/>
+  <rect x="458" y="714" width="20" height="20" rx="4" fill="#3a3c40"/>
+  <rect x="486" y="714" width="20" height="20" rx="4" fill="#3a3c40"/>
+  <!-- our widget, docked left of the clock -->
+  <rect x="690" y="706" width="172" height="36" rx="7" fill="#26282b" stroke="#3a3c40" stroke-width="1"/>
+  <text x="702" y="720" fill="#c8ccd0" font-size="10" font-weight="700">5h</text>
+  <rect x="720" y="713" width="78" height="6" rx="3" fill="#34363b"/>
+  <rect x="720" y="713" width="45" height="6" rx="3" fill="#d8b21a"/>
+  <text x="804" y="720" fill="#ffffff" font-size="10" font-weight="700">57%</text>
+  <text x="838" y="720" fill="#9aa0a6" font-size="9">1h42m</text>
+  <text x="702" y="736" fill="#c8ccd0" font-size="10" font-weight="700">7d</text>
+  <rect x="720" y="729" width="78" height="6" rx="3" fill="#34363b"/>
+  <rect x="720" y="729" width="33" height="6" rx="3" fill="#5fb030"/>
+  <text x="804" y="736" fill="#ffffff" font-size="10" font-weight="700">42%</text>
+  <text x="838" y="736" fill="#9aa0a6" font-size="9">3d04h</text>
+  <!-- clock -->
+  <text x="906" y="720" fill="#e8eaed" font-size="12" text-anchor="end">14:32</text>
+  <text x="906" y="736" fill="#9aa0a6" font-size="10" text-anchor="end">2026-05-27</text>
+  <!-- existing tray icon still present (small square in notification area) -->
+  <rect x="650" y="716" width="16" height="16" rx="2" fill="#d8b21a"/>
+  <text x="658" y="728" fill="#ffffff" font-size="9" font-weight="700" text-anchor="middle">57</text>
+
+  <text x="40" y="788" fill="#6f7479" font-size="12">Tray icon (small square, left of widget) stays — it keeps the right-click menu. Widget is draggable along the taskbar; remembered offset.</text>
+  <text x="40" y="812" fill="#6f7479" font-size="12">Note: SVG approximates Segoe UI metrics + AA. Real widget paints with the same GDI+ hinted text path as icon.rs.</text>
+</svg>
