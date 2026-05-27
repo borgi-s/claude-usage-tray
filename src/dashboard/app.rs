@@ -67,6 +67,7 @@ pub struct DashboardApp {
     settings: SharedSettings,
     settings_draft: Settings,
     settings_save_msg: Option<Result<(), String>>,
+    autostart_msg: Option<Result<(), String>>,
 }
 
 impl DashboardApp {
@@ -93,6 +94,7 @@ impl DashboardApp {
             settings,
             settings_draft,
             settings_save_msg: None,
+            autostart_msg: None,
         }
     }
 
@@ -294,6 +296,7 @@ impl eframe::App for DashboardApp {
                     &mut self.settings_draft,
                     &self.settings,
                     &mut self.settings_save_msg,
+                    &mut self.autostart_msg,
                 );
             }
         });

@@ -36,6 +36,7 @@ pub fn render(
     draft: &mut Settings,
     shared: &SharedSettings,
     save_msg: &mut Option<Result<(), String>>,
+    autostart_msg: &mut Option<Result<(), String>>,
 ) {
     ui.add_space(8.0);
     ui.horizontal(|ui| {
@@ -104,6 +105,25 @@ pub fn render(
             });
             ui.end_row();
         });
+
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        // Reads the live registry value each frame; applies immediately on toggle.
+        let mut enabled = crate::autostart::is_enabled();
+        if ui.checkbox(&mut enabled, "Start on login").changed() {
+            let res = if enabled {
+                crate::autostart::enable()
+            } else {
+                crate::autostart::disable()
+            };
+            *autostart_msg = Some(res.map_err(|e| e.to_string()));
+        }
+        if let Some(Err(e)) = autostart_msg.as_ref() {
+            ui.label(
+                RichText::new(format!("✗ {e}")).color(egui::Color32::from_rgb(220, 120, 120)),
+            );
+        }
+    });
 
     ui.add_space(16.0);
     ui.separator();
