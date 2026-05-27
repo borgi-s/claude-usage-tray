@@ -91,8 +91,7 @@ pub fn enable() -> anyhow::Result<()> {
     let key = open_run_key(KEY_SET_VALUE)?;
     let name = wide(VALUE_NAME);
     // SAFETY: key.0 is open with write access; `name` and `bytes` are alive.
-    let rc =
-        unsafe { RegSetValueExW(key.0, PCWSTR(name.as_ptr()), 0, REG_SZ, Some(bytes)) };
+    let rc = unsafe { RegSetValueExW(key.0, PCWSTR(name.as_ptr()), 0, REG_SZ, Some(bytes)) };
     if rc != ERROR_SUCCESS {
         anyhow::bail!("RegSetValueExW failed: {:?}", rc);
     }

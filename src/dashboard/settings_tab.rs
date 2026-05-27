@@ -119,9 +119,7 @@ pub fn render(
             *autostart_msg = Some(res.map_err(|e| e.to_string()));
         }
         if let Some(Err(e)) = autostart_msg.as_ref() {
-            ui.label(
-                RichText::new(format!("✗ {e}")).color(egui::Color32::from_rgb(220, 120, 120)),
-            );
+            ui.label(RichText::new(format!("✗ {e}")).color(egui::Color32::from_rgb(220, 120, 120)));
         }
     });
 
