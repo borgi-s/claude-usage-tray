@@ -39,7 +39,11 @@ User is a **Rust beginner** (zero prior Rust experience as of 2026-05-22). Expla
 
 Stage 8 shipped as a series of mini-projects (one per spec+plan). All four are complete; Stage 8 is done.
 
-**Milestone reached: `v1.0.0` (2026-05-27).** Settings live-apply was manually GUI-verified, closing the last open item; the design spec's end-of-Stage-8 goal — full Streamlit feature parity on Windows — is met. HEAD = `v1.0.0`, pushed to origin.
+**Milestone reached: `v1.0.0` (2026-05-27).** Settings live-apply was manually GUI-verified, closing the last open item; the design spec's end-of-Stage-8 goal — full Streamlit feature parity on Windows — is met.
+
+### Post-1.0 polish
+
+- **Auto-start on login (`v1.1.0`, 2026-05-27).** Opt-in "Start on login" via the per-user registry Run key (`HKCU\…\CurrentVersion\Run`, value `ClaudeUsageTray`). Registry is the single source of truth (no `settings.toml` field); toggleable from both the Settings tab checkbox and the tray right-click menu. New module `src/autostart.rs` (`is_enabled`/`enable`/`disable` via the `windows` crate's `Win32_System_Registry`). Registry round-trip manually GUI-verified. Spec: `docs/superpowers/specs/2026-05-27-autostart-on-login-design.md`; plan: `docs/superpowers/plans/2026-05-27-autostart-on-login.md`.
 
 ## Stage roadmap (summary — see spec for details)
 
