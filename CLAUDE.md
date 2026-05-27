@@ -39,6 +39,8 @@ User is a **Rust beginner** (zero prior Rust experience as of 2026-05-22). Expla
 
 Stage 8 shipped as a series of mini-projects (one per spec+plan). All four are complete; Stage 8 is done.
 
+**Milestone reached: `v1.0.0` (2026-05-27).** Settings live-apply was manually GUI-verified, closing the last open item; the design spec's end-of-Stage-8 goal — full Streamlit feature parity on Windows — is met. HEAD = `v1.0.0`, pushed to origin.
+
 ## Stage roadmap (summary — see spec for details)
 
 | Stage | Deliverable | Status |
@@ -51,7 +53,7 @@ Stage 8 shipped as a series of mini-projects (one per spec+plan). All four are c
 | 6 | egui dashboard window | ✅ Shipped — tag `v0.6.0`, pushed to GitHub |
 | 6.5 | Update notifier (GitHub Releases API) | ✅ Shipped — tag `v0.7.1` |
 | 7 | Supabase Storage upload | ✅ Shipped — tag `v0.7.0`, pushed to GitHub |
-| 8 | Streamlit feature parity (sessions table, filters, calibration history, live API banner, settings panel) | ✅ Shipped — mini-project 1 (sessions table + filters) `v0.8.0`; mini-project 2 (calibration history tab) `v0.9.0`; mini-project 3 (live API status banner) `v0.10.0`; mini-project 4 (settings panel) `v0.11.0` |
+| 8 | Streamlit feature parity (sessions table, filters, calibration history, live API banner, settings panel) | ✅ Shipped — mini-project 1 (sessions table + filters) `v0.8.0`; mini-project 2 (calibration history tab) `v0.9.0`; mini-project 3 (live API status banner) `v0.10.0`; mini-project 4 (settings panel) `v0.11.0`. **Milestone `v1.0.0` (2026-05-27)** — settings live-apply GUI-verified, full Streamlit parity on Windows reached |
 
 ## Tech stack (locked in design)
 
