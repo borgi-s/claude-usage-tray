@@ -19,8 +19,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow,
     DispatchMessageW, GetCursorPos, GetMessageW, GetWindowLongPtrW, PostMessageW, PostQuitMessage,
     RegisterClassExW, SetForegroundWindow, SetWindowLongPtrW, TrackPopupMenu, TranslateMessage,
-    CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, HICON, HMENU, HWND_MESSAGE, MF_SEPARATOR,
-    MF_STRING, MSG, SW_SHOWNORMAL, TPM_LEFTBUTTON, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WINDOW_STYLE,
+    CREATESTRUCTW, CW_USEDEFAULT, GWLP_USERDATA, HICON, HMENU, HWND_MESSAGE, MF_CHECKED,
+    MF_SEPARATOR, MF_STRING, MF_UNCHECKED, MSG, SW_SHOWNORMAL, TPM_LEFTBUTTON, TPM_RIGHTBUTTON,
+    WINDOW_EX_STYLE, WINDOW_STYLE,
     WM_APP, WM_COMMAND, WM_DESTROY, WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY, WM_RBUTTONUP,
     WNDCLASSEXW,
 };
@@ -37,6 +38,8 @@ pub const IDM_QUIT: usize = 1;
 pub const IDM_UPDATE: usize = 2;
 /// "Check for updates now" menu item ID.
 pub const IDM_CHECK_UPDATES: usize = 3;
+/// Tray menu command id: toggle "start at login".
+pub const IDM_AUTOSTART: usize = 4;
 
 /// Window class name (UTF-16, null-terminated).
 const CLASS_NAME: &[u16] = &[
@@ -203,6 +206,16 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 }
                 id if id == IDM_CHECK_UPDATES => {
                     with_state(hwnd, |state| trigger_manual_check(hwnd, state));
+                }
+                id if id == IDM_AUTOSTART => {
+                    let res = if crate::autostart::is_enabled() {
+                        crate::autostart::disable()
+                    } else {
+                        crate::autostart::enable()
+                    };
+                    if let Err(e) = res {
+                        tracing::warn!(error = %e, "failed to toggle auto-start");
+                    }
                 }
                 _ => {}
             }
@@ -501,6 +514,7 @@ fn show_context_menu(hwnd: HWND) {
     });
 
     let check_label = encode_utf16("Check for updates now");
+    let autostart_label = encode_utf16("Start on login");
     let quit_label = encode_utf16("Quit");
     unsafe {
         if let Some(label) = update_label.as_ref() {
@@ -512,6 +526,18 @@ fn show_context_menu(hwnd: HWND) {
             MF_STRING,
             IDM_CHECK_UPDATES,
             PCWSTR(check_label.as_ptr()),
+        );
+        let autostart_flags = MF_STRING
+            | if crate::autostart::is_enabled() {
+                MF_CHECKED
+            } else {
+                MF_UNCHECKED
+            };
+        let _ = AppendMenuW(
+            hmenu,
+            autostart_flags,
+            IDM_AUTOSTART,
+            PCWSTR(autostart_label.as_ptr()),
         );
         let _ = AppendMenuW(hmenu, MF_STRING, IDM_QUIT, PCWSTR(quit_label.as_ptr()));
         let _ = TrackPopupMenu(
