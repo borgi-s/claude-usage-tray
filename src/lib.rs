@@ -1,4 +1,5 @@
 pub mod api;
+pub mod autostart;
 pub mod calibration;
 pub mod cli;
 pub mod config;
