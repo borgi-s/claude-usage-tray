@@ -58,6 +58,49 @@ pub struct WidgetState {
     pub last_rect: Option<RECT>,
     /// Whether the window is currently shown (mirrors settings.widget_enabled).
     pub shown: bool,
+    /// Cached GDI+ resources, so the font family / brushes aren't recreated on
+    /// every paint. Built lazily on first paint, disposed on WM_NCDESTROY.
+    gdi: Option<WidgetGdi>,
+    /// Signature of the last painted content; the 1s tick only forces a repaint
+    /// when this changes, so an idle widget doesn't re-render every second.
+    last_render: Option<RenderSig>,
+}
+
+/// Cached GDI+ handles for painting. The size-independent resources (font
+/// family + the three constant-color brushes) are built once; `font` depends on
+/// the client height (its em scales with the taskbar band), so it is rebuilt
+/// whenever `font_h` no longer matches. Raw pointers stay valid for the process
+/// lifetime (GDI+ remains initialized) and are disposed on WM_NCDESTROY.
+struct WidgetGdi {
+    family: *mut GpFontFamily,
+    white: *mut GpSolidFill,
+    gray: *mut GpSolidFill,
+    track: *mut GpSolidFill,
+    font: *mut GpFont,
+    font_h: i32,
+}
+
+impl WidgetGdi {
+    /// SAFETY: call once, on the owning thread, with handles no longer in use.
+    unsafe fn dispose(&self) {
+        if !self.font.is_null() {
+            GdipDeleteFont(self.font);
+        }
+        GdipDeleteFontFamily(self.family);
+        GdipDeleteBrush(self.white as *mut GpBrush);
+        GdipDeleteBrush(self.gray as *mut GpBrush);
+        GdipDeleteBrush(self.track as *mut GpBrush);
+    }
+}
+
+/// Cheap signature of everything that affects the painted output. The dimensions
+/// catch a taskbar resize; the two `RowState`s capture status, utilization, and
+/// the per-minute countdown text.
+#[derive(PartialEq)]
+struct RenderSig {
+    w: i32,
+    h: i32,
+    rows: [RowState; 2],
 }
 
 fn register_class(hinst: HMODULE) -> Result<()> {
@@ -97,6 +140,8 @@ pub fn create(
         settings,
         last_rect: None,
         shown: false,
+        gdi: None,
+        last_render: None,
     });
     let state_ptr = Box::into_raw(state);
 
@@ -274,10 +319,53 @@ fn tick(hwnd: HWND, state: &mut WidgetState) {
         }
     }
 
-    // Repaint (updates countdown text + any fresh poll data).
-    // SAFETY: hwnd valid.
-    unsafe {
-        let _ = InvalidateRect(hwnd, None, false);
+    // Repaint only when the painted content actually changed (fresh poll data,
+    // a per-minute countdown rollover, or a size change). A static widget would
+    // otherwise re-render — and re-run GDI+ work — every single second.
+    let sig = render_sig(state);
+    if state.last_render.as_ref() != Some(&sig) {
+        state.last_render = Some(sig);
+        // SAFETY: hwnd valid.
+        unsafe {
+            let _ = InvalidateRect(hwnd, None, false);
+        }
+    }
+}
+
+/// Compute the current render signature (see `RenderSig`). Reads the shared
+/// snapshot under a short-lived lock and derives the same per-row visual state
+/// `paint_offscreen` would draw.
+fn render_sig(state: &WidgetState) -> RenderSig {
+    let (w, h) = match state.last_rect {
+        Some(r) => ((r.right - r.left).max(1), (r.bottom - r.top).max(1)),
+        None => (1, 1),
+    };
+    let (sample, status) = read_sample_status(state);
+    let now = Utc::now();
+    let five = sample.as_ref().and_then(|s| s.five_hour.clone());
+    let seven = sample.as_ref().and_then(|s| s.seven_day.clone());
+    RenderSig {
+        w,
+        h,
+        rows: [
+            row_state(&status, five.as_ref(), now),
+            row_state(&status, seven.as_ref(), now),
+        ],
+    }
+}
+
+/// Read the latest sample + poll status from the shared snapshot, dropping the
+/// read lock immediately (never held across paint/GDI work).
+fn read_sample_status(
+    state: &WidgetState,
+) -> (Option<crate::api::usage::UsageSnapshot>, LastStatus) {
+    let snap = state.shared.read().ok();
+    match snap.as_ref() {
+        Some(s) => (
+            s.last_sample.as_ref().map(|(snap, _)| snap.clone()),
+            s.last_status.clone(),
+        ),
+        None => (None, LastStatus::Initial),
     }
 }
 
@@ -418,9 +506,15 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         WM_NCDESTROY => {
             let ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut WidgetState;
             if !ptr.is_null() {
-                // SAFETY: set by `create` via Box::into_raw.
-                unsafe { drop(Box::from_raw(ptr)) };
-                unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0) };
+                // SAFETY: set by `create` via Box::into_raw. Dispose the cached
+                // GDI+ handles before freeing the state, then clear the slot.
+                unsafe {
+                    if let Some(gdi) = (*ptr).gdi.take() {
+                        gdi.dispose();
+                    }
+                    drop(Box::from_raw(ptr));
+                    SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+                }
             }
             unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
         }
@@ -429,7 +523,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
 }
 
 /// Paint the widget: off-screen GDI+ bitmap, then one blit to the window DC.
-fn paint(hwnd: HWND, state: &WidgetState) {
+fn paint(hwnd: HWND, state: &mut WidgetState) {
     // Window client size.
     let mut rc = RECT::default();
     // SAFETY: hwnd valid; rc out-param.
@@ -455,7 +549,7 @@ fn paint(hwnd: HWND, state: &WidgetState) {
     }
 }
 
-fn paint_offscreen(hdc: HDC, w: i32, h: i32, state: &WidgetState) -> Result<()> {
+fn paint_offscreen(hdc: HDC, w: i32, h: i32, state: &mut WidgetState) -> Result<()> {
     // 1) Off-screen ARGB bitmap + graphics (same as icon.rs).
     let mut bitmap: *mut GpBitmap = std::ptr::null_mut();
     let s =
@@ -479,15 +573,9 @@ fn paint_offscreen(hdc: HDC, w: i32, h: i32, state: &WidgetState) -> Result<()> 
     // without AA — at the widget's 10-12px sizes ClearType is the right call.
     unsafe { GdipSetTextRenderingHint(g, TextRenderingHintClearTypeGridFit) };
 
-    // 3) Read the snapshot once.
-    let snap = state.shared.read().ok();
-    let (sample, status) = match snap.as_ref() {
-        Some(s) => (
-            s.last_sample.as_ref().map(|(snap, _)| snap.clone()),
-            s.last_status.clone(),
-        ),
-        None => (None, LastStatus::Initial),
-    };
+    // 3) Read the snapshot once (lock released immediately, never held across
+    // the GDI work below).
+    let (sample, status) = read_sample_status(state);
     let now = Utc::now();
 
     // 4) Layout metrics.
@@ -532,30 +620,17 @@ fn paint_offscreen(hdc: HDC, w: i32, h: i32, state: &WidgetState) -> Result<()> 
         ("7d", row_state(&status, seven.as_ref(), now)),
     ];
 
-    // Reusable white text brush + font family.
-    let font_name: Vec<u16> = "Segoe UI"
-        .encode_utf16()
-        .chain(std::iter::once(0))
-        .collect();
-    let mut family: *mut GpFontFamily = std::ptr::null_mut();
-    unsafe {
-        GdipCreateFontFamilyFromName(
-            PCWSTR(font_name.as_ptr()),
-            std::ptr::null_mut(),
-            &mut family,
-        )
+    // Cached GDI+ resources: font family + the three constant-color brushes are
+    // built once; the font (its em scales with row height) is rebuilt only when
+    // the height changes. Em factor 0.85 keeps text close to row height so it
+    // reads clearly at the small sizes a taskbar enforces; the 10px floor
+    // prevents sub-readable text on a slim taskbar.
+    let font_em = (row_h as f32 * 0.85).clamp(10.0, 18.0);
+    ensure_gdi(state, h, font_em);
+    let (font, white, gray, track_brush) = {
+        let gdi = state.gdi.as_ref().expect("ensure_gdi populates state.gdi");
+        (gdi.font, gdi.white, gdi.gray, gdi.track)
     };
-    // Em-size scales with row height. The 0.85 factor (vs 0.6 before) keeps
-    // text closer to row height so it reads more clearly at the small sizes a
-    // taskbar enforces; the 10px floor prevents sub-readable text on a slim
-    // taskbar.
-    let em = (row_h as f32 * 0.85).clamp(10.0, 18.0);
-    let mut font: *mut GpFont = std::ptr::null_mut();
-    unsafe { GdipCreateFont(family, em, FontStyleBold.0, UnitPixel, &mut font) };
-    let mut white: *mut GpSolidFill = std::ptr::null_mut();
-    unsafe { GdipCreateSolidFill(0xFFFF_FFFFu32, &mut white) };
-    let mut gray: *mut GpSolidFill = std::ptr::null_mut();
-    unsafe { GdipCreateSolidFill(0xFF9A_A0A6u32, &mut gray) };
 
     for (i, (label, rs)) in rows.iter().enumerate() {
         let row_y = pad_y + i as i32 * (row_h + row_gap);
@@ -574,11 +649,8 @@ fn paint_offscreen(hdc: HDC, w: i32, h: i32, state: &WidgetState) -> Result<()> 
             Hx::Left,
         );
 
-        // Track (dark) — always drawn.
-        let mut track: *mut GpSolidFill = std::ptr::null_mut();
-        unsafe { GdipCreateSolidFill(0xFF34_363Bu32, &mut track) };
-        unsafe { GdipFillRectangleI(g, track as *mut GpBrush, bar_x, bar_y, bar_w, bar_h) };
-        unsafe { GdipDeleteBrush(track as *mut GpBrush) };
+        // Track (dark) — always drawn. Uses the cached track brush.
+        unsafe { GdipFillRectangleI(g, track_brush as *mut GpBrush, bar_x, bar_y, bar_w, bar_h) };
 
         match rs {
             RowState::Data {
@@ -665,13 +737,8 @@ fn paint_offscreen(hdc: HDC, w: i32, h: i32, state: &WidgetState) -> Result<()> 
         }
     }
 
-    // Clean up shared GDI+ objects.
-    unsafe {
-        GdipDeleteBrush(white as *mut GpBrush);
-        GdipDeleteBrush(gray as *mut GpBrush);
-        GdipDeleteFont(font);
-        GdipDeleteFontFamily(family);
-    }
+    // (Shared font/brushes are owned by `state.gdi` and disposed on
+    // WM_NCDESTROY — not freed here.)
 
     // 5) Blit the off-screen bitmap to the window DC in one shot (no flicker).
     let mut gd: *mut GpGraphics = std::ptr::null_mut();
@@ -687,6 +754,50 @@ fn paint_offscreen(hdc: HDC, w: i32, h: i32, state: &WidgetState) -> Result<()> 
         GdipDisposeImage(bitmap as *mut GpImage);
     }
     Ok(())
+}
+
+/// Ensure `state.gdi` is populated and its font matches `client_h`. Builds the
+/// size-independent resources (font family + constant brushes) once; rebuilds
+/// only the font when the height changes (its em scales with the taskbar band).
+fn ensure_gdi(state: &mut WidgetState, client_h: i32, font_em: f32) {
+    if state.gdi.is_none() {
+        let font_name: Vec<u16> = "Segoe UI"
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let mut family: *mut GpFontFamily = std::ptr::null_mut();
+        unsafe {
+            GdipCreateFontFamilyFromName(
+                PCWSTR(font_name.as_ptr()),
+                std::ptr::null_mut(),
+                &mut family,
+            )
+        };
+        let mut white: *mut GpSolidFill = std::ptr::null_mut();
+        unsafe { GdipCreateSolidFill(0xFFFF_FFFFu32, &mut white) };
+        let mut gray: *mut GpSolidFill = std::ptr::null_mut();
+        unsafe { GdipCreateSolidFill(0xFF9A_A0A6u32, &mut gray) };
+        let mut track: *mut GpSolidFill = std::ptr::null_mut();
+        unsafe { GdipCreateSolidFill(0xFF34_363Bu32, &mut track) };
+        state.gdi = Some(WidgetGdi {
+            family,
+            white,
+            gray,
+            track,
+            font: std::ptr::null_mut(),
+            font_h: -1,
+        });
+    }
+    let gdi = state.gdi.as_mut().expect("just populated");
+    if gdi.font.is_null() || gdi.font_h != client_h {
+        if !gdi.font.is_null() {
+            unsafe { GdipDeleteFont(gdi.font) };
+        }
+        let mut font: *mut GpFont = std::ptr::null_mut();
+        unsafe { GdipCreateFont(gdi.family, font_em, FontStyleBold.0, UnitPixel, &mut font) };
+        gdi.font = font;
+        gdi.font_h = client_h;
+    }
 }
 
 /// Horizontal alignment for `draw_text`'s layout rect. Vertical is always
