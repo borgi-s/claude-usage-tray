@@ -33,11 +33,25 @@ pub fn last_weekly_reset(anchor_ts: DateTime<Utc>, cp: CalParams) -> DateTime<Ut
     let candidate_naive = candidate_date
         .and_hms_opt(cp.reset_hour, 0, 0)
         .expect("reset hour 0..=23 is valid");
-    let candidate_local = tz
-        .from_local_datetime(&candidate_naive)
-        .single()
-        .or_else(|| tz.from_local_datetime(&candidate_naive).earliest())
-        .expect("Sun 07:00 should resolve unambiguously");
+    // Resolve the wall-clock reset time to a UTC instant. The default reset
+    // (Sun 07:00) never collides with DST, but `reset_hour`/`reset_weekday` are
+    // user-configurable and a chosen hour can land in a spring-forward gap (the
+    // wall-clock time does not exist) or a fall-back overlap (it happens twice).
+    // Pick the earliest valid instant on overlap; on a gap, step forward to the
+    // first instant that does exist (the gap's far edge). Never panic on a legal
+    // settings value.
+    let candidate_local = match tz.from_local_datetime(&candidate_naive) {
+        chrono::LocalResult::Single(dt) => dt,
+        chrono::LocalResult::Ambiguous(earliest, _latest) => earliest,
+        chrono::LocalResult::None => (1..=3)
+            .find_map(|h| {
+                tz.from_local_datetime(&(candidate_naive + Duration::hours(h)))
+                    .earliest()
+            })
+            // DST gaps are at most ~1h, so 1..=3h always resolves; this final
+            // fallback only exists so the type is non-panicking.
+            .unwrap_or_else(|| anchor_ts.with_timezone(&tz)),
+    };
 
     let candidate = if candidate_local > local {
         candidate_local - Duration::days(7)

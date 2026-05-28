@@ -57,6 +57,8 @@ const ANTHROPIC_BETA: &str = "oauth-2025-04-20";
 pub enum FetchError {
     #[error("rate-limited by usage endpoint (HTTP 429)")]
     RateLimited,
+    #[error("usage endpoint rejected the token (HTTP {0}); re-authenticate with `claude login`")]
+    Unauthorized(u16),
     #[error("usage endpoint returned HTTP {0}")]
     Http(u16),
     #[error("network error: {0}")]
@@ -83,6 +85,11 @@ pub fn fetch_usage(creds: &Credentials) -> Result<UsageSnapshot, FetchError> {
     let response = match req.call() {
         Ok(r) => r,
         Err(ureq::Error::Status(429, _)) => return Err(FetchError::RateLimited),
+        // 401/403 means the OAuth token is expired/revoked server-side — surface
+        // an actionable re-auth hint instead of a bare "HTTP 401".
+        Err(ureq::Error::Status(code @ (401 | 403), _)) => {
+            return Err(FetchError::Unauthorized(code))
+        }
         Err(ureq::Error::Status(code, _)) => return Err(FetchError::Http(code)),
         Err(ureq::Error::Transport(t)) => return Err(FetchError::Network(t.to_string())),
     };

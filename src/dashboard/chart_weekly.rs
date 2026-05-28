@@ -1,7 +1,7 @@
 //! Weekly cumulative-share chart: per-week (Sun 07:00 local reset) stepped line.
 
 use crate::dashboard::bands::calendar_bands;
-use crate::dashboard::range::{clamp_x_range, Range};
+use crate::dashboard::range::{clamp_end_to_data, clamp_x_range, Range};
 use crate::dashboard::series::cumulative_share_series_weekly;
 use crate::shared::snapshot::AppSnapshot;
 use chrono::Utc;
@@ -28,6 +28,7 @@ pub fn render(ui: &mut Ui, snap: &AppSnapshot, range: &mut Range, cp: crate::set
 
     let now = Utc::now();
     let (mut x_start, x_end) = clamp_x_range(now, *range);
+    let x_end = clamp_end_to_data(x_end, snap.turns.last().map(|t| t.ts));
     if *range == Range::All {
         if let Some(first) = snap.turns.first() {
             x_start = first.ts;

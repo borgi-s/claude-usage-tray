@@ -1,6 +1,6 @@
 //! Daily cost-weighted bar chart.
 
-use crate::dashboard::range::{clamp_x_range, Range};
+use crate::dashboard::range::{clamp_end_to_data, clamp_x_range, Range};
 use crate::dashboard::series::daily_aggregates;
 use crate::shared::snapshot::AppSnapshot;
 use chrono::{NaiveTime, Utc};
@@ -28,6 +28,7 @@ pub fn render(
 
     let now = Utc::now();
     let (mut x_start, x_end) = clamp_x_range(now, *range);
+    let x_end = clamp_end_to_data(x_end, snap.turns.last().map(|t| t.ts));
     if *range == Range::All {
         if let Some(first) = snap.turns.first() {
             x_start = first.ts;

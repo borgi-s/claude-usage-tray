@@ -7,7 +7,11 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use thiserror::Error;
 
-const SCHEMA_VERSION: u32 = 1;
+// v2: manifest stores `(mtime, len)` per file instead of mtime alone, so two
+// rapid appends that share an mtime (coarse-resolution filesystems: FAT/exFAT
+// 2s, some network shares 1s) are still detected via the length change. Old v1
+// manifests/caches are discarded on load → one-time full reparse on upgrade.
+const SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct CacheFile {
@@ -15,10 +19,18 @@ pub(crate) struct CacheFile {
     pub turns: Vec<Turn>,
 }
 
+/// Change-detection signature for a JSONL file: modification time plus byte
+/// length. Equality means "unchanged → skip reparse".
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub(crate) struct FileSig {
+    pub mtime_ms: i64,
+    pub len: u64,
+}
+
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub(crate) struct Manifest {
     pub schema_version: u32,
-    pub mtimes: HashMap<PathBuf, i64>,
+    pub sigs: HashMap<PathBuf, FileSig>,
 }
 
 #[derive(Debug, Error)]
@@ -49,29 +61,32 @@ pub fn refresh_at(projects_root: &Path, app_dir: &Path) -> Result<Vec<Turn>, Cac
     let cache_result = load_cache(app_dir);
     let mut prior_turns: Vec<Turn> = cache_result.as_ref().unwrap_or(&Vec::new()).clone();
     // If cache is corrupt, also reset manifest so we re-scan everything.
-    let mut prior_mtimes: HashMap<PathBuf, i64> = if cache_result.is_ok() {
+    let mut prior_sigs: HashMap<PathBuf, FileSig> = if cache_result.is_ok() {
         load_manifest(app_dir).unwrap_or_default()
     } else {
         HashMap::new()
     };
 
-    // 2. Walk root for *.jsonl and read current mtimes.
+    // 2. Walk root for *.jsonl and read current (mtime, len) signatures.
     let current: Vec<PathBuf> = walk_jsonl(projects_root).collect();
-    let mut current_mtimes: HashMap<PathBuf, i64> = HashMap::new();
+    let mut current_sigs: HashMap<PathBuf, FileSig> = HashMap::new();
     for p in &current {
-        let mt = mtime_millis(p).unwrap_or(0);
-        current_mtimes.insert(p.clone(), mt);
+        let sig = file_sig(p).unwrap_or(FileSig {
+            mtime_ms: 0,
+            len: 0,
+        });
+        current_sigs.insert(p.clone(), sig);
     }
 
     // 3. Compute diff sets.
     let new_or_changed: Vec<PathBuf> = current
         .iter()
-        .filter(|p| prior_mtimes.get(*p) != current_mtimes.get(*p))
+        .filter(|p| prior_sigs.get(*p) != current_sigs.get(*p))
         .cloned()
         .collect();
-    let deleted: Vec<PathBuf> = prior_mtimes
+    let deleted: Vec<PathBuf> = prior_sigs
         .keys()
-        .filter(|p| !current_mtimes.contains_key(*p))
+        .filter(|p| !current_sigs.contains_key(*p))
         .cloned()
         .collect();
 
@@ -100,18 +115,21 @@ pub fn refresh_at(projects_root: &Path, app_dir: &Path) -> Result<Vec<Turn>, Cac
     prior_turns.sort_by_key(|t| t.ts);
 
     // 8. Write out (atomic).
-    prior_mtimes = current_mtimes;
+    prior_sigs = current_sigs;
     write_cache(app_dir, &prior_turns)?;
-    write_manifest(app_dir, &prior_mtimes)?;
+    write_manifest(app_dir, &prior_sigs)?;
 
     Ok(prior_turns)
 }
 
-fn mtime_millis(p: &Path) -> Option<i64> {
+fn file_sig(p: &Path) -> Option<FileSig> {
     let meta = std::fs::metadata(p).ok()?;
     let modified = meta.modified().ok()?;
     let dur = modified.duration_since(UNIX_EPOCH).ok()?;
-    Some(dur.as_millis() as i64)
+    Some(FileSig {
+        mtime_ms: dur.as_millis() as i64,
+        len: meta.len(),
+    })
 }
 
 fn load_cache(app_dir: &Path) -> Result<Vec<Turn>, CacheError> {
@@ -127,7 +145,7 @@ fn load_cache(app_dir: &Path) -> Result<Vec<Turn>, CacheError> {
     Ok(file.turns)
 }
 
-fn load_manifest(app_dir: &Path) -> Result<HashMap<PathBuf, i64>, CacheError> {
+fn load_manifest(app_dir: &Path) -> Result<HashMap<PathBuf, FileSig>, CacheError> {
     let path = app_dir.join("cache_manifest.json");
     if !path.exists() {
         return Ok(HashMap::new());
@@ -137,7 +155,7 @@ fn load_manifest(app_dir: &Path) -> Result<HashMap<PathBuf, i64>, CacheError> {
     if m.schema_version != SCHEMA_VERSION {
         return Ok(HashMap::new());
     }
-    Ok(m.mtimes)
+    Ok(m.sigs)
 }
 
 fn write_cache(app_dir: &Path, turns: &[Turn]) -> Result<(), CacheError> {
@@ -153,10 +171,10 @@ fn write_cache(app_dir: &Path, turns: &[Turn]) -> Result<(), CacheError> {
     Ok(())
 }
 
-fn write_manifest(app_dir: &Path, mtimes: &HashMap<PathBuf, i64>) -> Result<(), CacheError> {
+fn write_manifest(app_dir: &Path, sigs: &HashMap<PathBuf, FileSig>) -> Result<(), CacheError> {
     let m = Manifest {
         schema_version: SCHEMA_VERSION,
-        mtimes: mtimes.clone(),
+        sigs: sigs.clone(),
     };
     let bytes = serde_json::to_vec_pretty(&m)?;
     let final_path = app_dir.join("cache_manifest.json");

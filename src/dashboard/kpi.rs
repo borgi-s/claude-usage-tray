@@ -32,10 +32,22 @@ pub fn render(ui: &mut Ui, kpis: &DashboardKpis, caps_available: bool) {
     });
 }
 
+// Red used when a share exceeds 100% (over the calibrated cap).
+const COLOR_OVER_CAP: Color32 = Color32::from_rgb(255, 95, 95);
+const COLOR_FILL: Color32 = Color32::from_rgb(79, 140, 255);
+
 fn kpi_share(ui: &mut Ui, label: &str, share: f64, caps_available: bool) {
     ui.label(egui::RichText::new(label).size(11.0).color(Color32::GRAY));
     if caps_available {
-        ui.label(egui::RichText::new(format!("{}%", (share * 100.0).round() as i64)).size(22.0));
+        // Over-cap (>100%) is the key signal on this KPI; the clamped bar alone
+        // can't show it, so tint both the number and the (saturated) bar red.
+        let over_cap = share > 1.0;
+        let value = egui::RichText::new(format!("{}%", (share * 100.0).round() as i64)).size(22.0);
+        ui.label(if over_cap {
+            value.color(COLOR_OVER_CAP)
+        } else {
+            value
+        });
         let pct = share.clamp(0.0, 1.0);
         let (rect, _) =
             ui.allocate_exact_size(egui::vec2(ui.available_width(), 4.0), egui::Sense::hover());
@@ -43,7 +55,11 @@ fn kpi_share(ui: &mut Ui, label: &str, share: f64, caps_available: bool) {
         painter.rect_filled(rect, 1.0, Color32::from_gray(60));
         let mut fill_rect = rect;
         fill_rect.max.x = rect.min.x + rect.width() * pct as f32;
-        painter.rect_filled(fill_rect, 1.0, Color32::from_rgb(79, 140, 255));
+        painter.rect_filled(
+            fill_rect,
+            1.0,
+            if over_cap { COLOR_OVER_CAP } else { COLOR_FILL },
+        );
     } else {
         ui.label(egui::RichText::new("—").size(22.0).color(Color32::GRAY));
         let (rect, _) =

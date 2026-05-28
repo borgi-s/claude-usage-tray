@@ -140,6 +140,56 @@ pub fn validate(s: &Settings) -> Result<(), String> {
     Ok(())
 }
 
+/// Repair an out-of-range settings struct field-by-field: each invalid field
+/// falls back to its default while every valid field is preserved. Returns the
+/// repaired struct plus human-readable notes for what changed (empty if clean).
+///
+/// This is the load-path counterpart to `validate` (which is the all-or-nothing
+/// gate the Settings-tab Save uses). A single bad field in a hand-edited
+/// `settings.toml` should not nuke the user's timezone, weights, and widget
+/// offset back to defaults.
+pub fn repair(mut s: Settings) -> (Settings, Vec<String>) {
+    let d = Settings::default();
+    let mut notes = Vec::new();
+
+    if s.local_tz.parse::<Tz>().is_err() {
+        notes.push(format!(
+            "invalid timezone '{}' → '{}'",
+            s.local_tz, d.local_tz
+        ));
+        s.local_tz = d.local_tz.clone();
+    }
+    if s.weekly_reset_hour > 23 {
+        notes.push(format!(
+            "weekly reset hour {} out of range → {}",
+            s.weekly_reset_hour, d.weekly_reset_hour
+        ));
+        s.weekly_reset_hour = d.weekly_reset_hour;
+    }
+    if !POLL_INTERVAL_CHOICES.contains(&s.poll_interval_secs) {
+        notes.push(format!(
+            "poll interval {} not in {:?} → {}",
+            s.poll_interval_secs, POLL_INTERVAL_CHOICES, d.poll_interval_secs
+        ));
+        s.poll_interval_secs = d.poll_interval_secs;
+    }
+    let dw = d.cost_weights;
+    let w = &mut s.cost_weights;
+    for (name, v, def) in [
+        ("input", &mut w.input, dw.input),
+        ("cache_creation", &mut w.cache_creation, dw.cache_creation),
+        ("cache_read", &mut w.cache_read, dw.cache_read),
+        ("output", &mut w.output, dw.output),
+    ] {
+        if !v.is_finite() || *v < 0.0 {
+            notes.push(format!("cost weight '{name}' invalid → {def}"));
+            *v = def;
+        }
+    }
+
+    (s, notes)
+}
+
 use std::path::Path;
 
 /// Load settings from the default path. Never fails: any error (missing,
@@ -168,11 +218,16 @@ pub fn load_from(path: &Path) -> Settings {
             return Settings::default();
         }
     };
-    if let Err(msg) = validate(&parsed) {
-        tracing::warn!(reason = %msg, "settings.toml failed validation; using defaults");
-        return Settings::default();
+    // Repair out-of-range fields individually rather than discarding the whole
+    // file: one bad value shouldn't reset every other setting.
+    let (repaired, notes) = repair(parsed);
+    if !notes.is_empty() {
+        tracing::warn!(
+            repairs = ?notes,
+            "settings.toml had invalid fields; repaired in-memory (file left unchanged)"
+        );
     }
-    parsed
+    repaired
 }
 
 /// Save settings to the default path. Returns the error so the UI can show it.
@@ -307,6 +362,53 @@ mod tests {
         };
         save_to(&p, &s).unwrap();
         assert_eq!(load_from(&p), s);
+    }
+
+    #[test]
+    fn repair_fixes_only_invalid_fields() {
+        let s = Settings {
+            local_tz: "America/New_York".into(), // valid → preserved
+            poll_interval_secs: 90,              // invalid → default
+            weekly_reset_hour: 30,               // invalid → default
+            cost_weights: CostWeights {
+                output: -5.0, // invalid → default
+                ..CostWeights::default()
+            },
+            ..Settings::default()
+        };
+        let (r, notes) = repair(s);
+        assert_eq!(r.local_tz, "America/New_York");
+        assert_eq!(r.poll_interval_secs, Settings::default().poll_interval_secs);
+        assert_eq!(r.weekly_reset_hour, Settings::default().weekly_reset_hour);
+        assert_eq!(r.cost_weights.output, CostWeights::default().output);
+        assert_eq!(notes.len(), 3);
+    }
+
+    #[test]
+    fn repair_is_noop_on_valid_settings() {
+        let s = Settings {
+            local_tz: "America/New_York".into(),
+            poll_interval_secs: 300,
+            ..Settings::default()
+        };
+        let (r, notes) = repair(s.clone());
+        assert_eq!(r, s);
+        assert!(notes.is_empty());
+    }
+
+    #[test]
+    fn load_from_out_of_range_field_repairs_instead_of_resetting() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("s.toml");
+        std::fs::write(
+            &p,
+            "local_tz = \"America/New_York\"\npoll_interval_secs = 90\n",
+        )
+        .unwrap();
+        let loaded = load_from(&p);
+        // The custom (valid) timezone survives; only the bad interval is reset.
+        assert_eq!(loaded.local_tz, "America/New_York");
+        assert_eq!(loaded.poll_interval_secs, 120);
     }
 
     #[test]
