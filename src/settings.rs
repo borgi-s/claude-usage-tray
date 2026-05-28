@@ -62,6 +62,11 @@ pub struct Settings {
     pub weekly_reset_hour: u32,
     pub poll_interval_secs: u64,
     pub cost_weights: CostWeights,
+    /// Whether the docked taskbar widget is shown. Default true.
+    pub widget_enabled: bool,
+    /// Pixels the widget is shifted left from its default right-anchored dock
+    /// position. Drag-managed; clamped at use, so any i32 is accepted.
+    pub widget_offset_px: i32,
 }
 
 impl Default for Settings {
@@ -72,6 +77,8 @@ impl Default for Settings {
             weekly_reset_hour: config::WEEKLY_RESET_HOUR_LOCAL,
             poll_interval_secs: 120,
             cost_weights: CostWeights::default(),
+            widget_enabled: true,
+            widget_offset_px: 0,
         }
     }
 }
@@ -276,6 +283,26 @@ mod tests {
                 output: 9.0,
                 ..CostWeights::default()
             },
+            ..Settings::default()
+        };
+        save_to(&p, &s).unwrap();
+        assert_eq!(load_from(&p), s);
+    }
+
+    #[test]
+    fn default_widget_fields() {
+        let s = Settings::default();
+        assert!(s.widget_enabled);
+        assert_eq!(s.widget_offset_px, 0);
+    }
+
+    #[test]
+    fn save_to_then_load_from_round_trips_widget_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("settings.toml");
+        let s = Settings {
+            widget_enabled: false,
+            widget_offset_px: 120,
             ..Settings::default()
         };
         save_to(&p, &s).unwrap();
