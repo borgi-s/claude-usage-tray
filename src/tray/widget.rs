@@ -30,9 +30,9 @@ use windows::Win32::Graphics::GdiPlus::{
 };
 use windows::Win32::UI::Shell::{SHAppBarMessage, ABM_GETTASKBARPOS, APPBARDATA};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, GetClientRect, GetWindowLongPtrW, GetWindowRect,
-    PostMessageW, RegisterClassExW, SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow,
-    CREATESTRUCTW, GWLP_USERDATA, HMENU, HTCAPTION, HWND_TOPMOST, SWP_NOACTIVATE, SW_HIDE, SW_SHOW,
+    CreateWindowExW, DefWindowProcW, GetClientRect, GetWindowLongPtrW, GetWindowRect, PostMessageW,
+    RegisterClassExW, SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow, CREATESTRUCTW,
+    GWLP_USERDATA, HMENU, HTCAPTION, HWND_TOPMOST, SWP_NOACTIVATE, SW_HIDE, SW_SHOW,
     WM_EXITSIZEMOVE, WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY, WM_NCHITTEST, WM_NCLBUTTONDBLCLK,
     WM_NCRBUTTONUP, WM_PAINT, WM_RBUTTONUP, WM_TIMER, WNDCLASSEXW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
     WS_POPUP,
@@ -399,7 +399,11 @@ fn paint_offscreen(hdc: HDC, w: i32, h: i32, state: &WidgetState) -> Result<()> 
         .collect();
     let mut family: *mut GpFontFamily = std::ptr::null_mut();
     unsafe {
-        GdipCreateFontFamilyFromName(PCWSTR(font_name.as_ptr()), std::ptr::null_mut(), &mut family)
+        GdipCreateFontFamilyFromName(
+            PCWSTR(font_name.as_ptr()),
+            std::ptr::null_mut(),
+            &mut family,
+        )
     };
     let em = (row_h as f32 * 0.6).clamp(8.0, 16.0);
     let mut font: *mut GpFont = std::ptr::null_mut();
