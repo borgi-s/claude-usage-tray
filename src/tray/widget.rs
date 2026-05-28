@@ -25,17 +25,18 @@ use windows::Win32::Graphics::GdiPlus::{
     GdipGetImageGraphicsContext, GdipGraphicsClear, GdipSetStringFormatAlign,
     GdipSetStringFormatLineAlign, GdipSetTextRenderingHint, GpBitmap, GpBrush, GpFont,
     GpFontFamily, GpGraphics, GpImage, GpSolidFill, GpStringFormat, RectF, Status,
-    StringAlignmentCenter, StringAlignmentNear, TextRenderingHintSingleBitPerPixelGridFit,
-    UnitPixel,
+    StringAlignmentCenter, StringAlignmentNear, TextRenderingHintClearTypeGridFit, UnitPixel,
 };
+use windows::Win32::UI::Accessibility::{SetWinEventHook, HWINEVENTHOOK};
 use windows::Win32::UI::Shell::{SHAppBarMessage, ABM_GETTASKBARPOS, APPBARDATA};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, GetClientRect, GetWindowLongPtrW, GetWindowRect, PostMessageW,
-    RegisterClassExW, SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow, CREATESTRUCTW,
-    GWLP_USERDATA, HMENU, HTCAPTION, HWND_TOPMOST, SWP_NOACTIVATE, SW_HIDE, SW_SHOW,
-    WM_EXITSIZEMOVE, WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY, WM_NCHITTEST, WM_NCLBUTTONDBLCLK,
-    WM_NCRBUTTONUP, WM_PAINT, WM_RBUTTONUP, WM_TIMER, WNDCLASSEXW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-    WS_POPUP,
+    CreateWindowExW, DefWindowProcW, GetClientRect, GetWindowLongPtrW, GetWindowRect,
+    IsWindowVisible, PostMessageW, RegisterClassExW, SetTimer, SetWindowLongPtrW, SetWindowPos,
+    ShowWindow, CREATESTRUCTW, EVENT_SYSTEM_FOREGROUND, GWLP_USERDATA, HMENU, HTCAPTION,
+    HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SW_HIDE, SW_SHOWNA,
+    WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS, WM_ACTIVATEAPP, WM_EXITSIZEMOVE, WM_LBUTTONUP,
+    WM_MOVING, WM_NCCREATE, WM_NCDESTROY, WM_NCHITTEST, WM_NCLBUTTONDBLCLK, WM_NCRBUTTONUP,
+    WM_PAINT, WM_RBUTTONUP, WM_TIMER, WNDCLASSEXW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
 // 0xFF000000 | 32bpp ARGB — same constant icon.rs documents.
@@ -126,6 +127,26 @@ pub fn create(
             unsafe {
                 SetTimer(h, TIMER_ID, 1000, None);
             }
+            // Register the global foreground hook so we re-assert HWND_TOPMOST
+            // the instant another window activates (faster than the 1s timer).
+            // Stash the hwnd for the callback; never unhooked — process exit
+            // cleans it up. `WINEVENT_SKIPOWNPROCESS` filters out our own
+            // window's foreground changes (we never become foreground anyway,
+            // but the filter is free insurance).
+            // SAFETY: callback signature matches `WINEVENTPROC`; hmod=null is
+            // valid when the callback is in-process; flags are documented OK.
+            WIDGET_HWND_RAW.store(h.0 as isize, Ordering::Relaxed);
+            unsafe {
+                let _ = SetWinEventHook(
+                    EVENT_SYSTEM_FOREGROUND,
+                    EVENT_SYSTEM_FOREGROUND,
+                    HMODULE::default(),
+                    Some(on_foreground_change),
+                    0,
+                    0,
+                    WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
+                );
+            }
             Ok(h)
         }
         Err(e) => {
@@ -186,6 +207,13 @@ fn apply_rect(hwnd: HWND, state: &mut WidgetState, r: RECT) {
 }
 
 /// One timer tick: reconcile visibility, re-dock, repaint.
+///
+/// Visibility is reconciled every tick (not just on setting-change transitions):
+/// Windows sometimes hides our topmost popup as a side effect of taskbar
+/// interactions (e.g. Aero Peek / clicking the taskbar). Re-checking via
+/// `IsWindowVisible` and re-issuing `ShowWindow(SW_SHOWNA)` makes the widget
+/// self-heal within one tick. `SW_SHOWNA` shows without activating so it never
+/// steals focus from whatever the user is doing.
 fn tick(hwnd: HWND, state: &mut WidgetState) {
     let want_visible = state
         .settings
@@ -193,17 +221,44 @@ fn tick(hwnd: HWND, state: &mut WidgetState) {
         .map(|g| g.widget_enabled)
         .unwrap_or(true);
 
-    // Show/hide to match the setting.
-    if want_visible != state.shown {
-        let cmd = if want_visible { SW_SHOW } else { SW_HIDE };
-        // SAFETY: hwnd valid. ShowWindow is safe to call here (owning thread).
-        unsafe {
-            let _ = ShowWindow(hwnd, cmd);
-        }
-        state.shown = want_visible;
-    }
     if !want_visible {
+        if state.shown {
+            // SAFETY: hwnd valid. ShowWindow is safe to call from the owning thread.
+            unsafe {
+                let _ = ShowWindow(hwnd, SW_HIDE);
+            }
+            state.shown = false;
+        }
         return; // nothing to dock/paint while hidden
+    }
+
+    // Want visible: ensure the OS actually has us shown. Idempotent if already shown.
+    // SAFETY: hwnd valid.
+    let is_visible = unsafe { IsWindowVisible(hwnd) }.as_bool();
+    if !is_visible {
+        unsafe {
+            let _ = ShowWindow(hwnd, SW_SHOWNA);
+        }
+    }
+    state.shown = true;
+
+    // Re-assert HWND_TOPMOST every tick. Clicking on the taskbar (Shell_TrayWnd
+    // is also topmost) can demote our widget within the topmost Z-order group,
+    // letting the taskbar paint over us. IsWindowVisible can't see this — the
+    // window is "visible" in WS_VISIBLE terms, just covered. Re-issuing
+    // SetWindowPos with HWND_TOPMOST and SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE
+    // pushes us back to the front without moving us or stealing focus.
+    // SAFETY: hwnd valid; flags + null position fields all documented OK.
+    unsafe {
+        let _ = SetWindowPos(
+            hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
     }
 
     // Re-dock over the live taskbar (bottom edge only; else leave last position).
@@ -276,6 +331,37 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             // Whole body acts as a drag handle.
             LRESULT(HTCAPTION as isize)
         }
+        WM_MOVING => {
+            // Sent during a drag. lparam is *mut RECT (proposed window rect in
+            // screen coords). Modify in place to (a) lock y to the taskbar band,
+            // and (b) clamp x within the taskbar so the widget can't be dragged
+            // off the taskbar's left/right edges. Return TRUE to signal we wrote
+            // back the rect.
+            if lparam.0 != 0 {
+                // SAFETY: lparam.0 is *mut RECT for WM_MOVING per MSDN.
+                let r: &mut RECT = unsafe { &mut *(lparam.0 as *mut RECT) };
+                if let Some((tb, edge)) = taskbar_rect() {
+                    if edge == ABE_BOTTOM {
+                        let w = r.right - r.left;
+                        let h = r.bottom - r.top;
+                        // Lock Y to the band-centered position.
+                        let band_y = tb.top + (tb.bottom - tb.top - h) / 2;
+                        r.top = band_y;
+                        r.bottom = band_y + h;
+                        // Clamp X within the taskbar (with margin).
+                        let min_x = tb.left + MARGIN_PX;
+                        let max_x = tb.right - w - MARGIN_PX;
+                        if max_x >= min_x {
+                            r.left = r.left.clamp(min_x, max_x);
+                        } else {
+                            r.left = min_x;
+                        }
+                        r.right = r.left + w;
+                    }
+                }
+            }
+            LRESULT(1) // TRUE — we modified the rect
+        }
         WM_NCRBUTTONUP => {
             // Forward to the tray window's existing right-click handler (shows menu).
             with_state(hwnd, |state| unsafe {
@@ -303,6 +389,30 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         WM_EXITSIZEMOVE => {
             // Drag finished: persist the new offset, then snap back into the band.
             on_drag_end(hwnd);
+            LRESULT(0)
+        }
+        WM_ACTIVATEAPP => {
+            // Sent synchronously to every top-level window of our process when a
+            // window of a DIFFERENT process activates (wparam=0) or one of ours
+            // does (wparam!=0). The taskbar (Shell_TrayWnd, explorer.exe) is a
+            // different process — clicking it deactivates our app, which is
+            // exactly when its topmost Z-order would otherwise demote us. Reach
+            // for HWND_TOPMOST immediately so the demotion never gets a frame
+            // to paint. The 1s timer tick is the slow-path backup; this is the
+            // fast path that kills the visible flicker.
+            // SAFETY: hwnd valid; SWP_NOMOVE|NOSIZE|NOACTIVATE leave position and
+            // focus alone — we only touch Z-order.
+            unsafe {
+                let _ = SetWindowPos(
+                    hwnd,
+                    HWND_TOPMOST,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                );
+            }
             LRESULT(0)
         }
         WM_NCDESTROY => {
@@ -362,7 +472,12 @@ fn paint_offscreen(hdc: HDC, w: i32, h: i32, state: &WidgetState) -> Result<()> 
 
     // 2) Panel background (#26282b opaque).
     let _ = unsafe { GdipGraphicsClear(g, 0xFF26_282Bu32) };
-    unsafe { GdipSetTextRenderingHint(g, TextRenderingHintSingleBitPerPixelGridFit) };
+    // ClearType (subpixel) AA matches the Windows shell text rendering for the
+    // clock + system-tray labels; it needs an opaque background, which the
+    // GdipGraphicsClear above provides. The icon.rs renderer uses the simpler
+    // SingleBitPerPixelGridFit because 12px digits in a 16×16 cell read better
+    // without AA — at the widget's 10-12px sizes ClearType is the right call.
+    unsafe { GdipSetTextRenderingHint(g, TextRenderingHintClearTypeGridFit) };
 
     // 3) Read the snapshot once.
     let snap = state.shared.read().ok();
@@ -376,14 +491,39 @@ fn paint_offscreen(hdc: HDC, w: i32, h: i32, state: &WidgetState) -> Result<()> 
     let now = Utc::now();
 
     // 4) Layout metrics.
-    let pad = (h / 8).max(2);
-    let row_h = (h - 2 * pad) / 2;
-    let label_w = row_h * 2; // room for "5h"/"7d"
-    let time_w = (w as f32 * 0.28) as i32;
-    let pct_w = (w as f32 * 0.16) as i32;
-    let bar_x = pad + label_w;
-    let bar_w = (w - pad - bar_x - pct_w - time_w).max(4);
-    let bar_h = (row_h / 3).max(3);
+    //
+    // Vertically: small outer padding + two rows separated by a gap.
+    //   [pad_y][row_h][row_gap][row_h][pad_y]
+    //
+    // Horizontally: pad, label ("5h"/"7d"), gap, bar, gap, pct ("99%"), gap,
+    // countdown (right-aligned, "23h 59m"), pad.
+    //   [pad_x][label_w][bar_gap][bar_w][bar_gap][pct_w][bar_gap][time_w][pad_x]
+    //
+    // Em-based pct_w / time_w let the right-side columns track the font (which
+    // tracks row_h) rather than the widget width, so trimming `widget_width`
+    // shrinks the bar instead of the text columns.
+    let pad_y = (h / 12).max(2);
+    let row_gap = (h / 10).max(3);
+    let row_h = ((h - 2 * pad_y - row_gap) / 2).max(8);
+    let pad_x = pad_y;
+    // Em-size scales with row height. The 0.9 factor + 10px floor keeps the
+    // text legible at the small sizes a slim taskbar enforces; ClearType AA
+    // (set above) keeps it crisp despite the small em.
+    let em = (row_h as f32 * 0.9).clamp(10.0, 18.0);
+    let label_w = row_h * 2;
+    let bar_gap = (row_h / 4).max(3);
+    // pct_w just fits "100%" at the chosen em; time_w just fits the longest
+    // expected countdown "23h 59m". Snug widths keep the inter-text gap tight.
+    let pct_w = (em * 2.5).round() as i32;
+    let time_w = (em * 3.8).round() as i32;
+    // Bars take ~2/3 of each row height, with a minimum so they remain visible
+    // even on a slim taskbar. The text sits next to them (not above/below) so
+    // taller bars don't crowd the labels/pct/countdown.
+    let bar_h = (row_h * 2 / 3).max(6);
+    let bar_x = pad_x + label_w;
+    let bar_w = (w - bar_x - bar_gap - pct_w - bar_gap - time_w - pad_x).max(4);
+    let pct_x = bar_x + bar_w + bar_gap;
+    let time_x = pct_x + pct_w + bar_gap;
 
     let five = sample.as_ref().and_then(|s| s.five_hour.clone());
     let seven = sample.as_ref().and_then(|s| s.seven_day.clone());
@@ -405,7 +545,11 @@ fn paint_offscreen(hdc: HDC, w: i32, h: i32, state: &WidgetState) -> Result<()> 
             &mut family,
         )
     };
-    let em = (row_h as f32 * 0.6).clamp(8.0, 16.0);
+    // Em-size scales with row height. The 0.85 factor (vs 0.6 before) keeps
+    // text closer to row height so it reads more clearly at the small sizes a
+    // taskbar enforces; the 10px floor prevents sub-readable text on a slim
+    // taskbar.
+    let em = (row_h as f32 * 0.85).clamp(10.0, 18.0);
     let mut font: *mut GpFont = std::ptr::null_mut();
     unsafe { GdipCreateFont(family, em, FontStyleBold.0, UnitPixel, &mut font) };
     let mut white: *mut GpSolidFill = std::ptr::null_mut();
@@ -414,7 +558,7 @@ fn paint_offscreen(hdc: HDC, w: i32, h: i32, state: &WidgetState) -> Result<()> 
     unsafe { GdipCreateSolidFill(0xFF9A_A0A6u32, &mut gray) };
 
     for (i, (label, rs)) in rows.iter().enumerate() {
-        let row_y = pad + i as i32 * row_h;
+        let row_y = pad_y + i as i32 * (row_h + row_gap);
         let bar_y = row_y + (row_h - bar_h) / 2;
 
         // Label (left, gray).
@@ -423,11 +567,11 @@ fn paint_offscreen(hdc: HDC, w: i32, h: i32, state: &WidgetState) -> Result<()> 
             label,
             gray as *mut GpBrush,
             font,
-            pad,
+            pad_x,
             row_y,
             label_w,
             row_h,
-            false,
+            Hx::Left,
         );
 
         // Track (dark) — always drawn.
@@ -455,11 +599,11 @@ fn paint_offscreen(hdc: HDC, w: i32, h: i32, state: &WidgetState) -> Result<()> 
                     &format!("{pct}%"),
                     white as *mut GpBrush,
                     font,
-                    bar_x + bar_w,
+                    pct_x,
                     row_y,
                     pct_w,
                     row_h,
-                    false,
+                    Hx::Left,
                 );
                 if let Some(cd) = countdown {
                     draw_text(
@@ -467,11 +611,11 @@ fn paint_offscreen(hdc: HDC, w: i32, h: i32, state: &WidgetState) -> Result<()> 
                         cd,
                         gray as *mut GpBrush,
                         font,
-                        bar_x + bar_w + pct_w,
+                        time_x,
                         row_y,
                         time_w,
                         row_h,
-                        false,
+                        Hx::Left,
                     );
                 }
             }
@@ -485,11 +629,11 @@ fn paint_offscreen(hdc: HDC, w: i32, h: i32, state: &WidgetState) -> Result<()> 
                     "!",
                     white as *mut GpBrush,
                     font,
-                    bar_x + bar_w,
+                    pct_x,
                     row_y,
                     pct_w,
                     row_h,
-                    false,
+                    Hx::Left,
                 );
                 if let Some(cd) = countdown {
                     draw_text(
@@ -497,11 +641,11 @@ fn paint_offscreen(hdc: HDC, w: i32, h: i32, state: &WidgetState) -> Result<()> 
                         cd,
                         gray as *mut GpBrush,
                         font,
-                        bar_x + bar_w + pct_w,
+                        time_x,
                         row_y,
                         time_w,
                         row_h,
-                        false,
+                        Hx::Left,
                     );
                 }
             }
@@ -511,11 +655,11 @@ fn paint_offscreen(hdc: HDC, w: i32, h: i32, state: &WidgetState) -> Result<()> 
                     "?",
                     gray as *mut GpBrush,
                     font,
-                    bar_x + bar_w,
+                    pct_x,
                     row_y,
                     pct_w,
                     row_h,
-                    false,
+                    Hx::Left,
                 );
             }
         }
@@ -545,8 +689,14 @@ fn paint_offscreen(hdc: HDC, w: i32, h: i32, state: &WidgetState) -> Result<()> 
     Ok(())
 }
 
-/// Draw a single string into a layout rect with the given brush. `center` picks
-/// horizontal centering vs left alignment; vertical is always centered.
+/// Horizontal alignment for `draw_text`'s layout rect. Vertical is always
+/// centered.
+#[derive(Clone, Copy)]
+enum Hx {
+    Left,
+}
+
+/// Draw a single string into a layout rect with the given brush.
 #[allow(clippy::too_many_arguments)]
 fn draw_text(
     g: *mut GpGraphics,
@@ -557,18 +707,16 @@ fn draw_text(
     y: i32,
     w: i32,
     h: i32,
-    center: bool,
+    align: Hx,
 ) {
     let utf16: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
     let len = text.encode_utf16().count() as i32;
     let mut fmt: *mut GpStringFormat = std::ptr::null_mut();
     unsafe { GdipCreateStringFormat(0, 0u16, &mut fmt) };
-    let align = if center {
-        StringAlignmentCenter
-    } else {
-        StringAlignmentNear
+    let gdip_align = match align {
+        Hx::Left => StringAlignmentNear,
     };
-    unsafe { GdipSetStringFormatAlign(fmt, align) };
+    unsafe { GdipSetStringFormatAlign(fmt, gdip_align) };
     unsafe { GdipSetStringFormatLineAlign(fmt, StringAlignmentCenter) };
     let layout = RectF {
         X: x as f32,
@@ -583,8 +731,69 @@ fn draw_text(
 /// Logical widget size derived from the taskbar's pixel height (so it is
 /// DPI-correct without querying DPI). Margin keeps it off the taskbar edges.
 const MARGIN_PX: i32 = 4;
-/// Widget width as a multiple of its height (two short rows of "label bar % time").
-const WIDTH_RATIO: i32 = 6;
+
+/// Widget width as a fraction of its height. Tuned so a typical row
+/// ("5h ▰▰▰▰ 99% 23h 59m") fits snugly with small inner gaps and minimal
+/// trailing slack; the trailing slack for short countdowns (e.g. "47m") is
+/// inherent to keeping text left-aligned (right-aligning a wide rect makes
+/// the gap between pct and time text huge for those cases).
+fn widget_width(h: i32) -> i32 {
+    h * 5
+}
+
+// ---- Global foreground hook ------------------------------------------------
+//
+// `WM_ACTIVATEAPP` only fires for the deactivating + activating apps — our
+// widget never has focus (`SW_SHOWNA` + `WS_EX_TOOLWINDOW`), so we don't
+// receive it. To eliminate the visible flicker when the user clicks the
+// taskbar (Shell_TrayWnd is also `WS_EX_TOPMOST` and demotes us within the
+// topmost group on activation), we register a global `EVENT_SYSTEM_FOREGROUND`
+// WinEvent hook. Every foreground change anywhere in the OS fires our
+// callback, which re-asserts `HWND_TOPMOST` synchronously before the system
+// paints the next frame.
+
+use std::sync::atomic::{AtomicIsize, Ordering};
+
+/// Widget HWND stashed for the cross-thread WinEvent callback. `HWND` is
+/// `*mut c_void` so it isn't `Send`/`Sync` — we store it as a raw `isize` and
+/// only ever pass it back to thread-safe Win32 APIs (`SetWindowPos`).
+static WIDGET_HWND_RAW: AtomicIsize = AtomicIsize::new(0);
+
+/// WinEvent callback. With `WINEVENT_OUTOFCONTEXT` the system delivers events
+/// on the thread that called `SetWinEventHook` via its message queue, so this
+/// runs synchronously on the widget's owning thread.
+unsafe extern "system" fn on_foreground_change(
+    _hook: HWINEVENTHOOK,
+    event: u32,
+    _hwnd: HWND,
+    _id_object: i32,
+    _id_child: i32,
+    _id_event_thread: u32,
+    _dwms_event_time: u32,
+) {
+    if event != EVENT_SYSTEM_FOREGROUND {
+        return;
+    }
+    let raw = WIDGET_HWND_RAW.load(Ordering::Relaxed);
+    if raw == 0 {
+        return;
+    }
+    let h = HWND(raw as *mut std::ffi::c_void);
+    // SAFETY: h is the widget HWND set in `create` and valid for process
+    // lifetime. SWP_NOMOVE|NOSIZE|NOACTIVATE leave position + focus untouched;
+    // we only push Z-order back to topmost.
+    unsafe {
+        let _ = SetWindowPos(
+            h,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        );
+    }
+}
 
 /// Compute the widget's screen rectangle from the live taskbar rect and the
 /// saved right-anchored offset. Vertically centered in the taskbar band,
@@ -593,7 +802,7 @@ const WIDTH_RATIO: i32 = 6;
 pub(crate) fn dock_rect(taskbar: RECT, offset_px: i32) -> RECT {
     let tb_h = (taskbar.bottom - taskbar.top).max(1);
     let h = (tb_h - 2 * MARGIN_PX).max(8);
-    let w = h * WIDTH_RATIO;
+    let w = widget_width(h);
 
     let y = taskbar.top + (tb_h - h) / 2;
 
@@ -621,7 +830,7 @@ pub(crate) fn dock_rect(taskbar: RECT, offset_px: i32) -> RECT {
 pub(crate) fn offset_from_left(taskbar: RECT, left: i32) -> i32 {
     let tb_h = (taskbar.bottom - taskbar.top).max(1);
     let h = (tb_h - 2 * MARGIN_PX).max(8);
-    let w = h * WIDTH_RATIO;
+    let w = widget_width(h);
     // left = taskbar.right - w - MARGIN - offset  =>  offset = taskbar.right - w - MARGIN - left
     (taskbar.right - w - MARGIN_PX - left).max(0)
 }
@@ -696,7 +905,7 @@ mod tests {
         let tb = rect(0, 1032, 1920, 1080);
         let r = dock_rect(tb, 0);
         let h = 48 - 8; // 40
-        let w = h * WIDTH_RATIO; // 240
+        let w = widget_width(h); // 40 * 5 = 200
         assert_eq!(r.bottom - r.top, h);
         assert_eq!(r.right - r.left, w);
         // right edge sits a margin in from the taskbar right edge.
