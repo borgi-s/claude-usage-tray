@@ -9,16 +9,440 @@ use crate::render::LastStatus;
 use chrono::{DateTime, Utc};
 use windows::Win32::Foundation::RECT;
 
+use crate::shared::{SharedSettings, SharedSnapshot};
+use crate::tray::poller::SendHwnd;
+use anyhow::{anyhow, Result};
+use windows::core::PCWSTR;
+use windows::Win32::Foundation::{HMODULE, HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::Graphics::Gdi::{BeginPaint, EndPaint, InvalidateRect, HDC, PAINTSTRUCT};
+use windows::Win32::Graphics::GdiPlus::{
+    FontStyleBold, GdipCreateBitmapFromScan0, GdipCreateFont, GdipCreateFontFamilyFromName,
+    GdipCreateFromHDC, GdipCreateSolidFill, GdipCreateStringFormat, GdipDeleteBrush,
+    GdipDeleteFont, GdipDeleteFontFamily, GdipDeleteGraphics, GdipDeleteStringFormat,
+    GdipDisposeImage, GdipDrawImageRectI, GdipDrawString, GdipFillRectangleI,
+    GdipGetImageGraphicsContext, GdipGraphicsClear, GdipSetStringFormatAlign,
+    GdipSetStringFormatLineAlign, GdipSetTextRenderingHint, GpBitmap, GpBrush, GpFont,
+    GpFontFamily, GpGraphics, GpImage, GpSolidFill, GpStringFormat, RectF, Status,
+    StringAlignmentCenter, StringAlignmentNear, TextRenderingHintSingleBitPerPixelGridFit,
+    UnitPixel,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    CreateWindowExW, DefWindowProcW, GetClientRect, GetWindowLongPtrW, RegisterClassExW, SetTimer,
+    SetWindowLongPtrW, CREATESTRUCTW, GWLP_USERDATA, HMENU, WM_NCCREATE, WM_NCDESTROY, WM_PAINT,
+    WM_TIMER, WNDCLASSEXW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+};
+
+// 0xFF000000 | 32bpp ARGB — same constant icon.rs documents.
+const PIXEL_FORMAT_32BPP_ARGB: i32 = 0x0026_200A;
+
+/// Timer id for the 1-second repaint/redock/visibility tick.
+const TIMER_ID: usize = 1;
+
+/// Window class name (UTF-16, null-terminated).
+const WIDGET_CLASS: PCWSTR = windows::core::w!("claude-usage-tray.widget");
+
+/// Per-window state stored via `GWLP_USERDATA`. The widget reads `shared` on
+/// paint and `settings` for the dock offset + enabled flag.
+pub struct WidgetState {
+    pub tray_hwnd: SendHwnd,
+    pub shared: SharedSnapshot,
+    pub settings: SharedSettings,
+    /// Last computed dock rect, so we only call SetWindowPos when it changes.
+    pub last_rect: Option<RECT>,
+    /// Whether the window is currently shown (mirrors settings.widget_enabled).
+    pub shown: bool,
+}
+
+fn register_class(hinst: HMODULE) -> Result<()> {
+    let wc = WNDCLASSEXW {
+        cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+        lpfnWndProc: Some(wndproc),
+        hInstance: hinst.into(),
+        lpszClassName: WIDGET_CLASS,
+        ..Default::default()
+    };
+    // SAFETY: wc lives for the call.
+    let atom = unsafe { RegisterClassExW(&wc) };
+    if atom == 0 {
+        let err = unsafe { windows::Win32::Foundation::GetLastError() };
+        if err.0 == 1410 {
+            return Ok(()); // ERROR_CLASS_ALREADY_EXISTS — fine on repeat runs
+        }
+        return Err(anyhow!("RegisterClassExW(widget) failed: {err:?}"));
+    }
+    Ok(())
+}
+
+/// Create the widget window (initially hidden; the first timer tick shows it if
+/// enabled). Returns the HWND. State is leaked into GWLP_USERDATA and reclaimed
+/// on WM_NCDESTROY.
+pub fn create(
+    hinst: HMODULE,
+    tray_hwnd: HWND,
+    shared: SharedSnapshot,
+    settings: SharedSettings,
+) -> Result<HWND> {
+    register_class(hinst)?;
+
+    let state = Box::new(WidgetState {
+        tray_hwnd: SendHwnd(tray_hwnd),
+        shared,
+        settings,
+        last_rect: None,
+        shown: false,
+    });
+    let state_ptr = Box::into_raw(state);
+
+    // WS_POPUP: no title/border. WS_EX_TOPMOST: always on top. WS_EX_TOOLWINDOW:
+    // no taskbar button / Alt-Tab entry. Position/size are set by the timer.
+    // SAFETY: class is registered; params valid; null parent => top-level.
+    let hwnd = unsafe {
+        CreateWindowExW(
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+            WIDGET_CLASS,
+            WIDGET_CLASS,
+            WS_POPUP,
+            0,
+            0,
+            10,
+            10,
+            None,
+            HMENU::default(),
+            hinst,
+            Some(state_ptr.cast()),
+        )
+    };
+
+    match hwnd {
+        Ok(h) => {
+            // 1-second tick for repaint + redock + show/hide.
+            // SAFETY: h is a valid window we just created.
+            unsafe {
+                SetTimer(h, TIMER_ID, 1000, None);
+            }
+            Ok(h)
+        }
+        Err(e) => {
+            // Reclaim the leaked Box on the error path.
+            unsafe { drop(Box::from_raw(state_ptr)) };
+            Err(anyhow!("CreateWindowExW(widget) failed: {e}"))
+        }
+    }
+}
+
+fn with_state<F: FnOnce(&mut WidgetState)>(hwnd: HWND, f: F) {
+    let ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut WidgetState;
+    if !ptr.is_null() {
+        // SAFETY: pointer set in `create`; window is single-threaded.
+        let state = unsafe { &mut *ptr };
+        f(state);
+    }
+}
+
+extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    match msg {
+        WM_NCCREATE => {
+            // SAFETY: lparam is *const CREATESTRUCTW on WM_NCCREATE.
+            let cs = unsafe { &*(lparam.0 as *const CREATESTRUCTW) };
+            unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, cs.lpCreateParams as isize) };
+            unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+        }
+        WM_PAINT => {
+            with_state(hwnd, |state| paint(hwnd, state));
+            LRESULT(0)
+        }
+        WM_TIMER => {
+            // Filled in Task 4 (redock + show/hide + repaint). For now just repaint.
+            unsafe {
+                let _ = InvalidateRect(hwnd, None, false);
+            }
+            LRESULT(0)
+        }
+        WM_NCDESTROY => {
+            let ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut WidgetState;
+            if !ptr.is_null() {
+                // SAFETY: set by `create` via Box::into_raw.
+                unsafe { drop(Box::from_raw(ptr)) };
+                unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0) };
+            }
+            unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+        }
+        _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
+    }
+}
+
+/// Paint the widget: off-screen GDI+ bitmap, then one blit to the window DC.
+fn paint(hwnd: HWND, state: &WidgetState) {
+    // Window client size.
+    let mut rc = RECT::default();
+    // SAFETY: hwnd valid; rc out-param.
+    unsafe {
+        let _ = GetClientRect(hwnd, &mut rc);
+    }
+    let w = (rc.right - rc.left).max(1);
+    let h = (rc.bottom - rc.top).max(1);
+
+    let mut ps = PAINTSTRUCT::default();
+    // SAFETY: hwnd valid; ps out-param.
+    let hdc = unsafe { BeginPaint(hwnd, &mut ps) };
+    if hdc.is_invalid() {
+        return;
+    }
+
+    // Best-effort: any GDI+ failure just leaves the window blank this frame.
+    let _ = paint_offscreen(hdc, w, h, state);
+
+    // SAFETY: matched BeginPaint/EndPaint pair.
+    unsafe {
+        let _ = EndPaint(hwnd, &ps);
+    }
+}
+
+fn paint_offscreen(hdc: HDC, w: i32, h: i32, state: &WidgetState) -> Result<()> {
+    // 1) Off-screen ARGB bitmap + graphics (same as icon.rs).
+    let mut bitmap: *mut GpBitmap = std::ptr::null_mut();
+    let s =
+        unsafe { GdipCreateBitmapFromScan0(w, h, 0, PIXEL_FORMAT_32BPP_ARGB, None, &mut bitmap) };
+    if s != Status(0) {
+        anyhow::bail!("GdipCreateBitmapFromScan0 failed: {s:?}");
+    }
+    let mut g: *mut GpGraphics = std::ptr::null_mut();
+    let s = unsafe { GdipGetImageGraphicsContext(bitmap as *mut GpImage, &mut g) };
+    if s != Status(0) {
+        unsafe { GdipDisposeImage(bitmap as *mut GpImage) };
+        anyhow::bail!("GdipGetImageGraphicsContext failed: {s:?}");
+    }
+
+    // 2) Panel background (#26282b opaque).
+    let _ = unsafe { GdipGraphicsClear(g, 0xFF26_282Bu32) };
+    unsafe { GdipSetTextRenderingHint(g, TextRenderingHintSingleBitPerPixelGridFit) };
+
+    // 3) Read the snapshot once.
+    let snap = state.shared.read().ok();
+    let (sample, status) = match snap.as_ref() {
+        Some(s) => (
+            s.last_sample.as_ref().map(|(snap, _)| snap.clone()),
+            s.last_status.clone(),
+        ),
+        None => (None, LastStatus::Initial),
+    };
+    let now = Utc::now();
+
+    // 4) Layout metrics.
+    let pad = (h / 8).max(2);
+    let row_h = (h - 2 * pad) / 2;
+    let label_w = row_h * 2; // room for "5h"/"7d"
+    let time_w = (w as f32 * 0.28) as i32;
+    let pct_w = (w as f32 * 0.16) as i32;
+    let bar_x = pad + label_w;
+    let bar_w = (w - pad - bar_x - pct_w - time_w).max(4);
+    let bar_h = (row_h / 3).max(3);
+
+    let five = sample.as_ref().and_then(|s| s.five_hour.clone());
+    let seven = sample.as_ref().and_then(|s| s.seven_day.clone());
+    let rows = [
+        ("5h", row_state(&status, five.as_ref(), now)),
+        ("7d", row_state(&status, seven.as_ref(), now)),
+    ];
+
+    // Reusable white text brush + font family.
+    let font_name: Vec<u16> = "Segoe UI"
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut family: *mut GpFontFamily = std::ptr::null_mut();
+    unsafe {
+        GdipCreateFontFamilyFromName(PCWSTR(font_name.as_ptr()), std::ptr::null_mut(), &mut family)
+    };
+    let em = (row_h as f32 * 0.6).clamp(8.0, 16.0);
+    let mut font: *mut GpFont = std::ptr::null_mut();
+    unsafe { GdipCreateFont(family, em, FontStyleBold.0, UnitPixel, &mut font) };
+    let mut white: *mut GpSolidFill = std::ptr::null_mut();
+    unsafe { GdipCreateSolidFill(0xFFFF_FFFFu32, &mut white) };
+    let mut gray: *mut GpSolidFill = std::ptr::null_mut();
+    unsafe { GdipCreateSolidFill(0xFF9A_A0A6u32, &mut gray) };
+
+    for (i, (label, rs)) in rows.iter().enumerate() {
+        let row_y = pad + i as i32 * row_h;
+        let bar_y = row_y + (row_h - bar_h) / 2;
+
+        // Label (left, gray).
+        draw_text(
+            g,
+            label,
+            gray as *mut GpBrush,
+            font,
+            pad,
+            row_y,
+            label_w,
+            row_h,
+            false,
+        );
+
+        // Track (dark) — always drawn.
+        let mut track: *mut GpSolidFill = std::ptr::null_mut();
+        unsafe { GdipCreateSolidFill(0xFF34_363Bu32, &mut track) };
+        unsafe { GdipFillRectangleI(g, track as *mut GpBrush, bar_x, bar_y, bar_w, bar_h) };
+        unsafe { GdipDeleteBrush(track as *mut GpBrush) };
+
+        match rs {
+            RowState::Data {
+                util,
+                pct,
+                countdown,
+            } => {
+                let (r, gg, b) = crate::tray::icon::anchored_gradient(*util);
+                let argb =
+                    0xFF00_0000u32 | (u32::from(r) << 16) | (u32::from(gg) << 8) | u32::from(b);
+                let fill_w = bar_fill_width(bar_w, *util);
+                let mut fill: *mut GpSolidFill = std::ptr::null_mut();
+                unsafe { GdipCreateSolidFill(argb, &mut fill) };
+                unsafe { GdipFillRectangleI(g, fill as *mut GpBrush, bar_x, bar_y, fill_w, bar_h) };
+                unsafe { GdipDeleteBrush(fill as *mut GpBrush) };
+                draw_text(
+                    g,
+                    &format!("{pct}%"),
+                    white as *mut GpBrush,
+                    font,
+                    bar_x + bar_w,
+                    row_y,
+                    pct_w,
+                    row_h,
+                    false,
+                );
+                if let Some(cd) = countdown {
+                    draw_text(
+                        g,
+                        cd,
+                        gray as *mut GpBrush,
+                        font,
+                        bar_x + bar_w + pct_w,
+                        row_y,
+                        time_w,
+                        row_h,
+                        false,
+                    );
+                }
+            }
+            RowState::Bang { countdown } => {
+                let mut fill: *mut GpSolidFill = std::ptr::null_mut();
+                unsafe { GdipCreateSolidFill(0xFFCC_2929u32, &mut fill) };
+                unsafe { GdipFillRectangleI(g, fill as *mut GpBrush, bar_x, bar_y, bar_w, bar_h) };
+                unsafe { GdipDeleteBrush(fill as *mut GpBrush) };
+                draw_text(
+                    g,
+                    "!",
+                    white as *mut GpBrush,
+                    font,
+                    bar_x + bar_w,
+                    row_y,
+                    pct_w,
+                    row_h,
+                    false,
+                );
+                if let Some(cd) = countdown {
+                    draw_text(
+                        g,
+                        cd,
+                        gray as *mut GpBrush,
+                        font,
+                        bar_x + bar_w + pct_w,
+                        row_y,
+                        time_w,
+                        row_h,
+                        false,
+                    );
+                }
+            }
+            RowState::Question => {
+                draw_text(
+                    g,
+                    "?",
+                    gray as *mut GpBrush,
+                    font,
+                    bar_x + bar_w,
+                    row_y,
+                    pct_w,
+                    row_h,
+                    false,
+                );
+            }
+        }
+    }
+
+    // Clean up shared GDI+ objects.
+    unsafe {
+        GdipDeleteBrush(white as *mut GpBrush);
+        GdipDeleteBrush(gray as *mut GpBrush);
+        GdipDeleteFont(font);
+        GdipDeleteFontFamily(family);
+    }
+
+    // 5) Blit the off-screen bitmap to the window DC in one shot (no flicker).
+    let mut gd: *mut GpGraphics = std::ptr::null_mut();
+    let s = unsafe { GdipCreateFromHDC(hdc, &mut gd) };
+    if s == Status(0) {
+        unsafe { GdipDrawImageRectI(gd, bitmap as *mut GpImage, 0, 0, w, h) };
+        unsafe { GdipDeleteGraphics(gd) };
+    }
+
+    // 6) Dispose off-screen objects.
+    unsafe {
+        GdipDeleteGraphics(g);
+        GdipDisposeImage(bitmap as *mut GpImage);
+    }
+    Ok(())
+}
+
+/// Draw a single string into a layout rect with the given brush. `center` picks
+/// horizontal centering vs left alignment; vertical is always centered.
+#[allow(clippy::too_many_arguments)]
+fn draw_text(
+    g: *mut GpGraphics,
+    text: &str,
+    brush: *mut GpBrush,
+    font: *mut GpFont,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    center: bool,
+) {
+    let utf16: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+    let len = text.encode_utf16().count() as i32;
+    let mut fmt: *mut GpStringFormat = std::ptr::null_mut();
+    unsafe { GdipCreateStringFormat(0, 0u16, &mut fmt) };
+    let align = if center {
+        StringAlignmentCenter
+    } else {
+        StringAlignmentNear
+    };
+    unsafe { GdipSetStringFormatAlign(fmt, align) };
+    unsafe { GdipSetStringFormatLineAlign(fmt, StringAlignmentCenter) };
+    let layout = RectF {
+        X: x as f32,
+        Y: y as f32,
+        Width: w as f32,
+        Height: h as f32,
+    };
+    unsafe { GdipDrawString(g, PCWSTR(utf16.as_ptr()), len, font, &layout, fmt, brush) };
+    unsafe { GdipDeleteStringFormat(fmt) };
+}
+
 /// Logical widget size derived from the taskbar's pixel height (so it is
 /// DPI-correct without querying DPI). Margin keeps it off the taskbar edges.
+// `#[allow(dead_code)]` lifted by Task 4 when `tick` first calls `dock_rect`.
+#[allow(dead_code)]
 const MARGIN_PX: i32 = 4;
 /// Widget width as a multiple of its height (two short rows of "label bar % time").
+#[allow(dead_code)]
 const WIDTH_RATIO: i32 = 6;
 
 /// Compute the widget's screen rectangle from the live taskbar rect and the
 /// saved right-anchored offset. Vertically centered in the taskbar band,
 /// anchored near the right edge, shifted left by `offset_px`, clamped to stay
 /// within the taskbar horizontally.
+#[allow(dead_code)]
 pub(crate) fn dock_rect(taskbar: RECT, offset_px: i32) -> RECT {
     let tb_h = (taskbar.bottom - taskbar.top).max(1);
     let h = (tb_h - 2 * MARGIN_PX).max(8);
@@ -47,6 +471,7 @@ pub(crate) fn dock_rect(taskbar: RECT, offset_px: i32) -> RECT {
 
 /// Given a widget's current left edge and the live taskbar rect, derive the
 /// offset to persist (distance from the right-anchored default position).
+#[allow(dead_code)]
 pub(crate) fn offset_from_left(taskbar: RECT, left: i32) -> i32 {
     let tb_h = (taskbar.bottom - taskbar.top).max(1);
     let h = (tb_h - 2 * MARGIN_PX).max(8);
