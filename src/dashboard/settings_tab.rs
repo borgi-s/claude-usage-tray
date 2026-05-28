@@ -123,6 +123,23 @@ pub fn render(
         }
     });
 
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        // Reads + writes the shared store directly (outside draft/Save); the
+        // widget's timer applies the change within ~1s.
+        let mut enabled = shared.read().map(|g| g.widget_enabled).unwrap_or(true);
+        if ui.checkbox(&mut enabled, "Show taskbar widget").changed() {
+            if let Ok(mut g) = shared.write() {
+                g.widget_enabled = enabled;
+                let to_save = g.clone();
+                drop(g);
+                let _ = settings::save(&to_save);
+            }
+            // Keep the draft consistent so the Save button doesn't show it as dirty.
+            draft.widget_enabled = enabled;
+        }
+    });
+
     ui.add_space(16.0);
     ui.separator();
     ui.add_space(8.0);
@@ -138,10 +155,20 @@ pub fn render(
             .add_enabled(can_save, egui::Button::new("Save"))
             .clicked()
         {
-            if let Ok(mut g) = shared.write() {
-                *g = draft.clone();
+            // Preserve the live widget fields (changed via the checkbox above or
+            // via drag) so a tz/weights Save doesn't overwrite them with a stale draft.
+            let mut to_save = draft.clone();
+            if let Ok(g) = shared.read() {
+                to_save.widget_enabled = g.widget_enabled;
+                to_save.widget_offset_px = g.widget_offset_px;
             }
-            *save_msg = Some(settings::save(draft).map_err(|e| e.to_string()));
+            // Mirror into the draft so the dirty check settles.
+            draft.widget_enabled = to_save.widget_enabled;
+            draft.widget_offset_px = to_save.widget_offset_px;
+            if let Ok(mut g) = shared.write() {
+                *g = to_save.clone();
+            }
+            *save_msg = Some(settings::save(&to_save).map_err(|e| e.to_string()));
         }
 
         match (&valid, dirty, save_msg.as_ref()) {
