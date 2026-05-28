@@ -59,6 +59,14 @@ pub fn run() -> Result<()> {
         window::format_tooltip(&LastStatus::Initial, None, None, chrono::Utc::now());
     render_and_store_initial_icon(hwnd, &initial_tooltip)?;
 
+    // Create the docked taskbar widget (hidden until its first timer tick, which
+    // shows it iff settings.widget_enabled). Failure is non-fatal — the tray icon
+    // is the fallback surface.
+    match widget::create(hinst, hwnd, shared.clone(), settings.clone()) {
+        Ok(_whwnd) => tracing::info!("taskbar widget created"),
+        Err(e) => tracing::warn!(error = %e, "failed to create taskbar widget; continuing"),
+    }
+
     let send_hwnd = poller::SendHwnd(hwnd);
     let poll_handle = poller::spawn(
         creds,
