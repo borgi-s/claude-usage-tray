@@ -14,7 +14,9 @@ use crate::tray::poller::SendHwnd;
 use anyhow::{anyhow, Result};
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{HMODULE, HWND, LPARAM, LRESULT, WPARAM};
-use windows::Win32::Graphics::Gdi::{BeginPaint, EndPaint, InvalidateRect, HDC, PAINTSTRUCT};
+use windows::Win32::Graphics::Gdi::{
+    BeginPaint, CreateRoundRectRgn, EndPaint, InvalidateRect, SetWindowRgn, HDC, PAINTSTRUCT,
+};
 use windows::Win32::Graphics::GdiPlus::{
     FontStyleBold, GdipCreateBitmapFromScan0, GdipCreateFont, GdipCreateFontFamilyFromName,
     GdipCreateFromHDC, GdipCreateSolidFill, GdipCreateStringFormat, GdipDeleteBrush,
@@ -26,10 +28,14 @@ use windows::Win32::Graphics::GdiPlus::{
     StringAlignmentCenter, StringAlignmentNear, TextRenderingHintSingleBitPerPixelGridFit,
     UnitPixel,
 };
+use windows::Win32::UI::Shell::{SHAppBarMessage, ABM_GETTASKBARPOS, APPBARDATA};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, GetClientRect, GetWindowLongPtrW, RegisterClassExW, SetTimer,
-    SetWindowLongPtrW, CREATESTRUCTW, GWLP_USERDATA, HMENU, WM_NCCREATE, WM_NCDESTROY, WM_PAINT,
-    WM_TIMER, WNDCLASSEXW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    CreateWindowExW, DefWindowProcW, GetClientRect, GetWindowLongPtrW, GetWindowRect,
+    PostMessageW, RegisterClassExW, SetTimer, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+    CREATESTRUCTW, GWLP_USERDATA, HMENU, HTCAPTION, HWND_TOPMOST, SWP_NOACTIVATE, SW_HIDE, SW_SHOW,
+    WM_EXITSIZEMOVE, WM_LBUTTONUP, WM_NCCREATE, WM_NCDESTROY, WM_NCHITTEST, WM_NCLBUTTONDBLCLK,
+    WM_NCRBUTTONUP, WM_PAINT, WM_RBUTTONUP, WM_TIMER, WNDCLASSEXW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    WS_POPUP,
 };
 
 // 0xFF000000 | 32bpp ARGB — same constant icon.rs documents.
@@ -139,6 +145,117 @@ fn with_state<F: FnOnce(&mut WidgetState)>(hwnd: HWND, f: F) {
     }
 }
 
+/// `uEdge` value returned by `ABM_GETTASKBARPOS` when the taskbar sits on the
+/// bottom edge of the screen. We only first-class this case; vertical/top/left
+/// taskbars are explicit non-goals (the widget keeps its last position).
+const ABE_BOTTOM: u32 = 3;
+
+/// Query the live taskbar rect + edge. Returns None if the call fails.
+fn taskbar_rect() -> Option<(RECT, u32)> {
+    let mut abd = APPBARDATA {
+        cbSize: std::mem::size_of::<APPBARDATA>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: abd is a valid out-param for the documented message.
+    let ok = unsafe { SHAppBarMessage(ABM_GETTASKBARPOS, &mut abd) };
+    if ok == 0 {
+        return None;
+    }
+    Some((abd.rc, abd.uEdge))
+}
+
+/// Move/resize the window to `r` only if it changed (avoids needless repaints
+/// and fighting an in-progress drag).
+fn apply_rect(hwnd: HWND, state: &mut WidgetState, r: RECT) {
+    if state.last_rect == Some(r) {
+        return;
+    }
+    let w = r.right - r.left;
+    let h = r.bottom - r.top;
+    // SAFETY: hwnd valid. SWP_NOACTIVATE keeps focus off the widget; HWND_TOPMOST
+    // keeps it above normal windows.
+    unsafe {
+        let _ = SetWindowPos(hwnd, HWND_TOPMOST, r.left, r.top, w, h, SWP_NOACTIVATE);
+        // Rounded corners: region radius scales with height.
+        let radius = (h / 3).max(4);
+        let rgn = CreateRoundRectRgn(0, 0, w + 1, h + 1, radius, radius);
+        // SetWindowRgn takes ownership of the region.
+        let _ = SetWindowRgn(hwnd, rgn, true);
+    }
+    state.last_rect = Some(r);
+}
+
+/// One timer tick: reconcile visibility, re-dock, repaint.
+fn tick(hwnd: HWND, state: &mut WidgetState) {
+    let want_visible = state
+        .settings
+        .read()
+        .map(|g| g.widget_enabled)
+        .unwrap_or(true);
+
+    // Show/hide to match the setting.
+    if want_visible != state.shown {
+        let cmd = if want_visible { SW_SHOW } else { SW_HIDE };
+        // SAFETY: hwnd valid. ShowWindow is safe to call here (owning thread).
+        unsafe {
+            let _ = ShowWindow(hwnd, cmd);
+        }
+        state.shown = want_visible;
+    }
+    if !want_visible {
+        return; // nothing to dock/paint while hidden
+    }
+
+    // Re-dock over the live taskbar (bottom edge only; else leave last position).
+    if let Some((tb, edge)) = taskbar_rect() {
+        if edge == ABE_BOTTOM {
+            let offset = state
+                .settings
+                .read()
+                .map(|g| g.widget_offset_px)
+                .unwrap_or(0);
+            let r = dock_rect(tb, offset);
+            apply_rect(hwnd, state, r);
+        }
+    }
+
+    // Repaint (updates countdown text + any fresh poll data).
+    // SAFETY: hwnd valid.
+    unsafe {
+        let _ = InvalidateRect(hwnd, None, false);
+    }
+}
+
+/// Drag finished: persist the new offset, then force a re-dock next tick.
+fn on_drag_end(hwnd: HWND) {
+    // Current window position (screen coords).
+    let mut r = RECT::default();
+    // SAFETY: hwnd valid; r out-param.
+    unsafe {
+        let _ = GetWindowRect(hwnd, &mut r);
+    }
+    let Some((tb, edge)) = taskbar_rect() else {
+        return;
+    };
+    if edge != ABE_BOTTOM {
+        return;
+    }
+    let new_offset = offset_from_left(tb, r.left);
+    with_state(hwnd, |state| {
+        // Persist offset to shared settings + disk. Re-dock happens next tick.
+        if let Ok(mut g) = state.settings.write() {
+            g.widget_offset_px = new_offset;
+            let to_save = g.clone();
+            drop(g);
+            if let Err(e) = crate::settings::save(&to_save) {
+                tracing::warn!(error = %e, "failed to persist widget offset");
+            }
+        }
+        // Force a redock next tick by clearing the cached rect.
+        state.last_rect = None;
+    });
+}
+
 extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_NCCREATE => {
@@ -152,10 +269,40 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             LRESULT(0)
         }
         WM_TIMER => {
-            // Filled in Task 4 (redock + show/hide + repaint). For now just repaint.
-            unsafe {
-                let _ = InvalidateRect(hwnd, None, false);
-            }
+            with_state(hwnd, |state| tick(hwnd, state));
+            LRESULT(0)
+        }
+        WM_NCHITTEST => {
+            // Whole body acts as a drag handle.
+            LRESULT(HTCAPTION as isize)
+        }
+        WM_NCRBUTTONUP => {
+            // Forward to the tray window's existing right-click handler (shows menu).
+            with_state(hwnd, |state| unsafe {
+                let _ = PostMessageW(
+                    state.tray_hwnd.0,
+                    crate::tray::window::WM_APP_TRAYICON,
+                    WPARAM(0),
+                    LPARAM(WM_RBUTTONUP as isize),
+                );
+            });
+            LRESULT(0)
+        }
+        WM_NCLBUTTONDBLCLK => {
+            // Forward to the tray window's left-click handler (opens dashboard).
+            with_state(hwnd, |state| unsafe {
+                let _ = PostMessageW(
+                    state.tray_hwnd.0,
+                    crate::tray::window::WM_APP_TRAYICON,
+                    WPARAM(0),
+                    LPARAM(WM_LBUTTONUP as isize),
+                );
+            });
+            LRESULT(0)
+        }
+        WM_EXITSIZEMOVE => {
+            // Drag finished: persist the new offset, then snap back into the band.
+            on_drag_end(hwnd);
             LRESULT(0)
         }
         WM_NCDESTROY => {
@@ -431,18 +578,14 @@ fn draw_text(
 
 /// Logical widget size derived from the taskbar's pixel height (so it is
 /// DPI-correct without querying DPI). Margin keeps it off the taskbar edges.
-// `#[allow(dead_code)]` lifted by Task 4 when `tick` first calls `dock_rect`.
-#[allow(dead_code)]
 const MARGIN_PX: i32 = 4;
 /// Widget width as a multiple of its height (two short rows of "label bar % time").
-#[allow(dead_code)]
 const WIDTH_RATIO: i32 = 6;
 
 /// Compute the widget's screen rectangle from the live taskbar rect and the
 /// saved right-anchored offset. Vertically centered in the taskbar band,
 /// anchored near the right edge, shifted left by `offset_px`, clamped to stay
 /// within the taskbar horizontally.
-#[allow(dead_code)]
 pub(crate) fn dock_rect(taskbar: RECT, offset_px: i32) -> RECT {
     let tb_h = (taskbar.bottom - taskbar.top).max(1);
     let h = (tb_h - 2 * MARGIN_PX).max(8);
@@ -471,7 +614,6 @@ pub(crate) fn dock_rect(taskbar: RECT, offset_px: i32) -> RECT {
 
 /// Given a widget's current left edge and the live taskbar rect, derive the
 /// offset to persist (distance from the right-anchored default position).
-#[allow(dead_code)]
 pub(crate) fn offset_from_left(taskbar: RECT, left: i32) -> i32 {
     let tb_h = (taskbar.bottom - taskbar.top).max(1);
     let h = (tb_h - 2 * MARGIN_PX).max(8);
