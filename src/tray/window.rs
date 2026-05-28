@@ -39,6 +39,8 @@ pub const IDM_UPDATE: usize = 2;
 pub const IDM_CHECK_UPDATES: usize = 3;
 /// Tray menu command id: toggle "start at login".
 pub const IDM_AUTOSTART: usize = 4;
+/// Tray menu command id: toggle "show taskbar widget".
+pub const IDM_WIDGET: usize = 5;
 
 /// Window class name (UTF-16, null-terminated).
 const CLASS_NAME: &[u16] = &[
@@ -216,6 +218,18 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                         tracing::warn!(error = %e, "failed to toggle auto-start");
                     }
                 }
+                id if id == IDM_WIDGET => {
+                    with_state(hwnd, |state| {
+                        if let Ok(mut g) = state.settings.write() {
+                            g.widget_enabled = !g.widget_enabled;
+                            let to_save = g.clone();
+                            drop(g);
+                            if let Err(e) = crate::settings::save(&to_save) {
+                                tracing::warn!(error = %e, "failed to persist widget_enabled");
+                            }
+                        }
+                    });
+                }
                 _ => {}
             }
             LRESULT(0)
@@ -248,6 +262,19 @@ fn with_state<F: FnOnce(&mut TrayState)>(hwnd: HWND, f: F) {
         let state = unsafe { &mut *state_ptr };
         f(state);
     }
+}
+
+/// Read-only variant of `with_state` that returns a value. Used when the menu
+/// builder needs to peek at a state field to set a checkmark flag without
+/// taking a mutable borrow.
+fn with_state_value<T, F: FnOnce(&TrayState) -> T>(hwnd: HWND, f: F, default: T) -> T {
+    let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut TrayState;
+    if state_ptr.is_null() {
+        return default;
+    }
+    // SAFETY: pointer set by `create`; window is single-threaded.
+    let state = unsafe { &*state_ptr };
+    f(state)
 }
 
 fn drain_and_redraw(hwnd: HWND, state: &mut TrayState) {
@@ -514,6 +541,7 @@ fn show_context_menu(hwnd: HWND) {
 
     let check_label = encode_utf16("Check for updates now");
     let autostart_label = encode_utf16("Start on login");
+    let widget_label = encode_utf16("Show taskbar widget");
     let quit_label = encode_utf16("Quit");
     unsafe {
         if let Some(label) = update_label.as_ref() {
@@ -537,6 +565,22 @@ fn show_context_menu(hwnd: HWND) {
             autostart_flags,
             IDM_AUTOSTART,
             PCWSTR(autostart_label.as_ptr()),
+        );
+        let widget_flags = MF_STRING
+            | if with_state_value(
+                hwnd,
+                |s| s.settings.read().map(|g| g.widget_enabled).unwrap_or(true),
+                true,
+            ) {
+                MF_CHECKED
+            } else {
+                MF_UNCHECKED
+            };
+        let _ = AppendMenuW(
+            hmenu,
+            widget_flags,
+            IDM_WIDGET,
+            PCWSTR(widget_label.as_ptr()),
         );
         let _ = AppendMenuW(hmenu, MF_STRING, IDM_QUIT, PCWSTR(quit_label.as_ptr()));
         let _ = TrackPopupMenu(
