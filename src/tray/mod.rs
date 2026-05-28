@@ -6,6 +6,7 @@
 
 pub mod icon;
 pub mod poller;
+pub mod widget;
 pub mod window;
 
 use crate::api::credentials::load_from_default_path;
