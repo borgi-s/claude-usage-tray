@@ -12,6 +12,18 @@ use crate::shared::snapshot::AppSnapshot;
 use crate::sync::config::SyncConfig;
 use crate::sync::storage::{ObjectStore, SupabaseStore};
 
+/// The opt-in toggle for the Windows tray's cloud-caps (secondary) mode. Returns
+/// the prefix to read account-wide caps from (e.g. "borgi-linux") when
+/// `SUPABASE_CAPS_PREFIX` is set and non-empty, else `None` (poll the API as before).
+/// Loads `.env` first so it works the same whether or not the syncer has run yet.
+pub fn caps_prefix_from_env() -> Option<String> {
+    let _ = dotenvy::dotenv();
+    std::env::var("SUPABASE_CAPS_PREFIX")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 /// Builds the three buffers and uploads them under the configured prefix.
 pub struct Syncer<S: ObjectStore> {
     config: SyncConfig,
@@ -66,6 +78,18 @@ impl<S: ObjectStore> Syncer<S> {
             "application/octet-stream",
             crate::sync::export::cache_parquet(&snapshot.turns),
         );
+    }
+
+    /// Read `{caps_prefix}/caps.json` from the store and parse it into a
+    /// `UsageSnapshot`. Used by the Windows tray's cloud-caps (secondary) mode to
+    /// display live utilization without polling the rate-limited usage API.
+    pub fn fetch_caps(
+        &self,
+        caps_prefix: &str,
+    ) -> anyhow::Result<crate::api::usage::UsageSnapshot> {
+        let object_path = format!("{}/caps.json", caps_prefix);
+        let bytes = self.store.get(&object_path)?;
+        crate::api::usage::parse_caps_snapshot(&bytes)
     }
 
     fn put_buffer(&self, name: &str, content_type: &str, built: anyhow::Result<Vec<u8>>) {
@@ -185,6 +209,31 @@ mod tests {
         let paths: Vec<&str> = puts.iter().map(|(p, _, _)| p.as_str()).collect();
         assert_eq!(paths, vec!["borgi/cache.parquet"]);
         assert_eq!(puts[0].1, "application/octet-stream");
+    }
+
+    struct CapsFake {
+        body: Vec<u8>,
+    }
+    impl ObjectStore for CapsFake {
+        fn put(&self, _: &str, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn get(&self, object_path: &str) -> Result<Vec<u8>, StorageError> {
+            assert_eq!(object_path, "borgi-linux/caps.json");
+            Ok(self.body.clone())
+        }
+    }
+
+    #[test]
+    fn fetch_caps_reads_prefixed_caps_json_and_parses_it() {
+        let body = br#"{"sample_util_5h":0.42,"sample_util_7d":0.1,"resets_5h_iso":null,"resets_7d_iso":null}"#.to_vec();
+        let syncer = Syncer {
+            config: cfg(),
+            store: CapsFake { body },
+        };
+        let snap = syncer.fetch_caps("borgi-linux").unwrap();
+        assert!((snap.five_hour.unwrap().utilization - 0.42).abs() < 1e-9);
+        assert!((snap.seven_day.unwrap().utilization - 0.1).abs() < 1e-9);
     }
 
     #[test]
