@@ -2,6 +2,7 @@
 //! the orchestration in `sync::mod` be tested with a fake (no network).
 
 use crate::sync::config::SyncConfig;
+use std::io::Read;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -16,6 +17,9 @@ pub enum StorageError {
 /// prefix, e.g. "borgi/cache.parquet".
 pub trait ObjectStore {
     fn put(&self, object_path: &str, content_type: &str, bytes: &[u8]) -> Result<(), StorageError>;
+    /// Download an object's bytes. `object_path` is the full key including prefix,
+    /// e.g. "borgi-linux/caps.json".
+    fn get(&self, object_path: &str) -> Result<Vec<u8>, StorageError>;
 }
 
 /// Supabase Storage REST client. Uploads via `POST /storage/v1/object/{bucket}/{key}`
@@ -67,6 +71,28 @@ impl ObjectStore for SupabaseStore {
 
         match resp {
             Ok(_) => Ok(()),
+            Err(ureq::Error::Status(code, _)) => Err(StorageError::Http(code)),
+            Err(e) => Err(StorageError::Network(e.to_string())),
+        }
+    }
+
+    fn get(&self, object_path: &str) -> Result<Vec<u8>, StorageError> {
+        let url = self.object_url(object_path);
+        let resp = self
+            .agent
+            .get(&url)
+            .set("Authorization", &format!("Bearer {}", self.key))
+            .set("apikey", &self.key)
+            .call();
+
+        match resp {
+            Ok(r) => {
+                let mut buf = Vec::new();
+                r.into_reader()
+                    .read_to_end(&mut buf)
+                    .map_err(|e| StorageError::Network(e.to_string()))?;
+                Ok(buf)
+            }
             Err(ureq::Error::Status(code, _)) => Err(StorageError::Http(code)),
             Err(e) => Err(StorageError::Network(e.to_string())),
         }

@@ -103,6 +103,10 @@ mod tests {
                 .push((object_path.into(), content_type.into(), bytes.len()));
             Ok(())
         }
+
+        fn get(&self, _object_path: &str) -> Result<Vec<u8>, StorageError> {
+            Ok(Vec::new())
+        }
     }
 
     fn cfg() -> SyncConfig {
@@ -161,6 +165,10 @@ mod tests {
                 return Err(StorageError::Http(503));
             }
             Ok(())
+        }
+
+        fn get(&self, _object_path: &str) -> Result<Vec<u8>, StorageError> {
+            Ok(Vec::new())
         }
     }
 
