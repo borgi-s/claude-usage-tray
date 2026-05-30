@@ -1,13 +1,35 @@
-#![windows_subsystem = "windows"]
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
+// On Linux/macOS this binary is not the entry point — the headless `collector`
+// binary is. We still provide a stub `main` so `cargo build`/`cargo test`
+// succeed on those platforms.
+#[cfg(not(windows))]
+fn main() {
+    eprintln!(
+        "claude-usage-tray (GUI) is Windows-only.\n\
+         On this platform, run the collector instead:\n  \
+         cargo run --release --bin collector -- --once"
+    );
+    std::process::exit(1);
+}
+
+#[cfg(windows)]
 use anyhow::Result;
+#[cfg(windows)]
 use chrono::Utc;
+#[cfg(windows)]
 use clap::Parser;
+#[cfg(windows)]
 use claude_usage_tray::api::credentials::{load_from_default_path, Credentials};
+#[cfg(windows)]
 use claude_usage_tray::api::usage::{fetch_usage, UsageBucket, UsageSnapshot};
+#[cfg(windows)]
 use claude_usage_tray::cli::Cli;
+#[cfg(windows)]
 use claude_usage_tray::render::format_duration;
+#[cfg(windows)]
 use tracing_subscriber::EnvFilter;
+#[cfg(windows)]
 use windows::Win32::Graphics::GdiPlus::{
     GdiplusShutdown, GdiplusStartup, GdiplusStartupInput, Status,
 };
@@ -15,8 +37,10 @@ use windows::Win32::Graphics::GdiPlus::{
 /// RAII guard that initializes GDI+ in `init()` and shuts it down on drop.
 /// We hold one for the whole process lifetime so cleanup runs on every exit path
 /// (including `?` early-returns and panic unwinding).
+#[cfg(windows)]
 struct GdiplusGuard(usize);
 
+#[cfg(windows)]
 impl GdiplusGuard {
     fn init() -> Result<Self> {
         let mut token: usize = 0;
@@ -34,6 +58,7 @@ impl GdiplusGuard {
     }
 }
 
+#[cfg(windows)]
 impl Drop for GdiplusGuard {
     fn drop(&mut self) {
         // SAFETY: token was obtained from a successful GdiplusStartup and we are
@@ -42,6 +67,7 @@ impl Drop for GdiplusGuard {
     }
 }
 
+#[cfg(windows)]
 fn main() -> Result<()> {
     // Attach to parent console (if any) so --once/--watch can still print to a terminal.
     // Harmlessly fails when launched from Explorer.
@@ -69,6 +95,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+#[cfg(windows)]
 fn init_tracing_stderr(level: &str) {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));
     tracing_subscriber::fmt()
@@ -78,6 +105,7 @@ fn init_tracing_stderr(level: &str) {
         .init();
 }
 
+#[cfg(windows)]
 fn run_once() -> Result<()> {
     let creds = load_from_default_path()?;
     let snap = fetch_usage(&creds)?;
@@ -90,6 +118,7 @@ fn run_once() -> Result<()> {
     Ok(())
 }
 
+#[cfg(windows)]
 fn print_snapshot(snap: &UsageSnapshot, creds: &Credentials) {
     let now = Utc::now();
     if let Some(b) = &snap.five_hour {
@@ -108,6 +137,7 @@ fn print_snapshot(snap: &UsageSnapshot, creds: &Credentials) {
     );
 }
 
+#[cfg(windows)]
 fn format_one(b: &UsageBucket, now: chrono::DateTime<Utc>) -> String {
     let pct = (b.utilization * 100.0).round() as i64;
     match b.resets_at {
