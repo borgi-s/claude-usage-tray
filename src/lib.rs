@@ -1,8 +1,10 @@
 pub mod api;
+#[cfg(windows)]
 pub mod autostart;
 pub mod calibration;
 pub mod cli;
 pub mod config;
+#[cfg(windows)]
 pub mod dashboard;
 pub mod data;
 pub mod log;
@@ -13,6 +15,7 @@ pub mod settings;
 pub mod shared;
 pub mod state;
 pub mod sync;
+#[cfg(windows)]
 pub mod tray;
 pub mod updater;
 pub mod watch;
