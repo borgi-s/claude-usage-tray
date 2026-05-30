@@ -19,7 +19,10 @@ use claude_usage_tray::sync::Syncer;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
-#[command(version, about = "Headless Claude Code usage collector (Linux server).")]
+#[command(
+    version,
+    about = "Headless Claude Code usage collector (Linux server)."
+)]
 struct CollectorCli {
     /// Run one collect+upload cycle and exit (for testing).
     #[arg(long)]
@@ -55,8 +58,17 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    tracing::info!(interval_secs = cli.interval, "collector starting");
-    let interval = Duration::from_secs(cli.interval);
+    // Clamp to the documented 60s floor: the usage endpoint is rate-limited to
+    // ~1 req/min, and an interval of 0 would otherwise busy-loop hammering it.
+    let interval_secs = cli.interval.max(60);
+    if cli.interval < 60 {
+        tracing::warn!(
+            requested = cli.interval,
+            "interval below the 60s rate-limit floor; clamping to 60s"
+        );
+    }
+    tracing::info!(interval_secs, "collector starting");
+    let interval = Duration::from_secs(interval_secs);
     loop {
         let started = Instant::now();
         run_cycle(&syncer);
