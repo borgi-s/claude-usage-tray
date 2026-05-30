@@ -57,6 +57,17 @@ impl<S: ObjectStore> Syncer<S> {
         );
     }
 
+    /// Best-effort: upload ONLY `cache.parquet` (local turns) under the configured
+    /// prefix. Used when a poll failed (so we don't overwrite good caps.json with
+    /// an empty snapshot) and by the Windows cache-only path. Never returns an error.
+    pub fn upload_cache_only(&self, snapshot: &AppSnapshot) {
+        self.put_buffer(
+            "cache.parquet",
+            "application/octet-stream",
+            crate::sync::export::cache_parquet(&snapshot.turns),
+        );
+    }
+
     fn put_buffer(&self, name: &str, content_type: &str, built: anyhow::Result<Vec<u8>>) {
         let object_path = format!("{}/{}", self.config.prefix, name);
         match built {
@@ -151,6 +162,21 @@ mod tests {
             }
             Ok(())
         }
+    }
+
+    #[test]
+    fn upload_cache_only_uploads_just_the_cache_object() {
+        let syncer = Syncer {
+            config: cfg(),
+            store: FakeStore::default(),
+        };
+
+        syncer.upload_cache_only(&AppSnapshot::default());
+
+        let puts = syncer.store.puts.lock().unwrap();
+        let paths: Vec<&str> = puts.iter().map(|(p, _, _)| p.as_str()).collect();
+        assert_eq!(paths, vec!["borgi/cache.parquet"]);
+        assert_eq!(puts[0].1, "application/octet-stream");
     }
 
     #[test]
