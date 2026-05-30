@@ -122,6 +122,23 @@ fn polling_loop(
         }
     };
 
+    // Phase 3: opt-in cloud-caps (secondary) mode. When SUPABASE_CAPS_PREFIX is set
+    // and Supabase sync is configured, read account-wide caps from the cloud instead
+    // of polling the rate-limited usage API, and upload only our local turns.
+    let caps_prefix = crate::sync::caps_prefix_from_env();
+    let cloud_caps_mode = caps_prefix.is_some() && syncer.is_some();
+    match (&caps_prefix, &syncer) {
+        (Some(p), Some(_)) => tracing::info!(
+            caps_prefix = %p,
+            "live caps source: cloud (secondary mode; NOT polling the usage API)"
+        ),
+        (Some(p), None) => tracing::warn!(
+            caps_prefix = %p,
+            "SUPABASE_CAPS_PREFIX set but Supabase sync is not configured; falling back to API polling"
+        ),
+        (None, _) => tracing::info!("live caps source: usage API (primary mode)"),
+    }
+
     while !shutdown.load(Ordering::Relaxed) {
         let fetch_at = Instant::now();
 
@@ -137,7 +154,23 @@ fn polling_loop(
 
         // API fetch. Update persistent last_sample / last_status so the shared
         // snapshot always carries the freshest available status even on 429/error.
-        let event = match poll_once(&creds) {
+        // Cloud mode reads caps.json from Supabase; primary mode polls the API
+        // (which also appends a calibration sample). Both yield a UsageSnapshot or
+        // a FetchError, so the match arms below are unchanged.
+        let fetch_result = if cloud_caps_mode {
+            syncer
+                .as_ref()
+                .expect("cloud_caps_mode implies syncer.is_some()")
+                .fetch_caps(
+                    caps_prefix
+                        .as_ref()
+                        .expect("cloud_caps_mode implies caps_prefix.is_some()"),
+                )
+                .map_err(|e| FetchError::Network(e.to_string()))
+        } else {
+            poll_once(&creds)
+        };
+        let event = match fetch_result {
             Ok(snap) => {
                 last_sample = Some((snap.clone(), chrono::Utc::now()));
                 last_status = LastStatus::Ok;
@@ -175,14 +208,21 @@ fn polling_loop(
         // Stage 7: best-effort upload of the snapshot we just built. Re-read the
         // calibration log so the parquet matches this tick.
         if let Some(syncer) = &syncer {
-            let samples = match crate::log::calibration::read_all_default() {
-                Ok(s) => s,
-                Err(e) => {
-                    tracing::warn!(error = %e, "calibration log read failed; uploading empty samples this tick");
-                    Vec::new()
-                }
-            };
-            syncer.run_once(&snapshot, &creds, &samples);
+            if cloud_caps_mode {
+                // Secondary mode: upload only our local turns. caps.json and the
+                // calibration log are the primary (Linux) poller's responsibility,
+                // so we must not overwrite them from here.
+                syncer.upload_cache_only(&snapshot);
+            } else {
+                let samples = match crate::log::calibration::read_all_default() {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "calibration log read failed; uploading empty samples this tick");
+                        Vec::new()
+                    }
+                };
+                syncer.run_once(&snapshot, &creds, &samples);
+            }
         }
         match shared.write() {
             Ok(mut g) => *g = snapshot,
