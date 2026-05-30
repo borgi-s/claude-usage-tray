@@ -19,14 +19,23 @@ dirs = "5"
 anyhow = "1"
 thiserror = "1"
 clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-appender = "0.2"
+arrow = "58.3.0"
+parquet = "58.3.0"
+dotenvy = "0.15.7"
+toml = "0.8"
+semver = "1"
+
+# GUI + Win32: only ever compiled for Windows. On Linux these are never fetched,
+# so the headless `collector` binary builds without the egui/glow/winit/Win32 stack.
+[target.'cfg(windows)'.dependencies]
 eframe = { version = "0.29", default-features = false, features = ["default_fonts", "glow"] }
 egui = "0.29"
 egui_plot = "0.29"
 egui_extras = { version = "0.29", features = ["datepicker"] }
 winit = { version = "0.30", features = [] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-tracing-appender = "0.2"
 windows = { version = "0.58", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
@@ -38,11 +47,10 @@ windows = { version = "0.58", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
-arrow = "58.3.0"
-parquet = "58.3.0"
-dotenvy = "0.15.7"
-toml = "0.8"
-semver = "1"
+
+[[bin]]
+name = "collector"
+path = "src/bin/collector.rs"
 
 [dev-dependencies]
 tempfile = "3"
