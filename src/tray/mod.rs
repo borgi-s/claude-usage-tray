@@ -9,7 +9,7 @@ pub mod poller;
 pub mod widget;
 pub mod window;
 
-use crate::api::credentials::load_from_default_path;
+use crate::api::credentials::{load_from_default_path, Credentials};
 use crate::render::LastStatus;
 use anyhow::Result;
 use std::sync::atomic::AtomicBool;
@@ -19,7 +19,25 @@ use std::sync::Arc;
 /// Run the tray app. Blocks until the user clicks Quit or the process is
 /// otherwise terminated. Returns `Ok(())` on clean shutdown.
 pub fn run() -> Result<()> {
-    let creds = load_from_default_path()?;
+    // In cloud-caps (secondary) mode we don't poll the API, so a missing/expired
+    // token must not stop the tray from starting — we read live caps from the cloud
+    // and upload cache-only. In primary mode the token is required as before.
+    let cloud_caps_mode = crate::sync::caps_prefix_from_env().is_some();
+    let creds = match load_from_default_path() {
+        Ok(c) => c,
+        Err(e) if cloud_caps_mode => {
+            tracing::warn!(
+                error = %e,
+                "credentials unavailable; starting in cloud-caps mode without a live token"
+            );
+            Credentials {
+                access_token: String::new(),
+                subscription_type: "unknown".to_string(),
+                rate_limit_tier: "unknown".to_string(),
+            }
+        }
+        Err(e) => return Err(e),
+    };
     use crate::shared::{new_shared_settings, new_shared_snapshot};
     let shared = new_shared_snapshot();
     let settings = new_shared_settings();
