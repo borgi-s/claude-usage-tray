@@ -47,6 +47,40 @@ pub fn parse_usage_response(raw: &str) -> Result<UsageSnapshot> {
     })
 }
 
+/// Parse `caps.json` (written by `sync::export::caps_json`) into a `UsageSnapshot`.
+/// Account-wide `sample_util_*` are already 0.0–1.0 fractions; `resets_*_iso` are
+/// RFC3339 strings. A missing/null `sample_util_*` yields no bucket for that window.
+pub fn parse_caps_snapshot(bytes: &[u8]) -> Result<UsageSnapshot> {
+    #[derive(Deserialize)]
+    struct CapsIn {
+        #[serde(default)]
+        sample_util_5h: Option<f64>,
+        #[serde(default)]
+        sample_util_7d: Option<f64>,
+        #[serde(default)]
+        resets_5h_iso: Option<String>,
+        #[serde(default)]
+        resets_7d_iso: Option<String>,
+    }
+
+    fn bucket(util: Option<f64>, resets_iso: Option<String>) -> Option<UsageBucket> {
+        util.map(|utilization| UsageBucket {
+            utilization,
+            resets_at: resets_iso.and_then(|s| {
+                DateTime::parse_from_rfc3339(&s)
+                    .ok()
+                    .map(|d| d.with_timezone(&Utc))
+            }),
+        })
+    }
+
+    let c: CapsIn = serde_json::from_slice(bytes).context("invalid caps.json")?;
+    Ok(UsageSnapshot {
+        five_hour: bucket(c.sample_util_5h, c.resets_5h_iso),
+        seven_day: bucket(c.sample_util_7d, c.resets_7d_iso),
+    })
+}
+
 use crate::api::credentials::Credentials;
 use thiserror::Error;
 
